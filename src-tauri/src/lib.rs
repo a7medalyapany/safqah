@@ -13,7 +13,9 @@ use commands::{
         create_category, create_item, delete_category, delete_item, get_item_by_barcode,
         list_categories, list_items, update_item,
     },
-    sales::{create_sale_invoice, search_items},
+    sales::{
+        create_sale_invoice, get_invoice_detail, get_invoice_stats, list_invoices, search_items,
+    },
     sessions::{
         close_session, get_active_session, get_session_sales_total_millieme, open_session,
     },
@@ -77,6 +79,9 @@ pub fn run() {
             close_session,
             get_session_sales_total_millieme,
             create_sale_invoice,
+            list_invoices,
+            get_invoice_detail,
+            get_invoice_stats,
             list_suppliers,
             get_supplier,
             create_supplier,

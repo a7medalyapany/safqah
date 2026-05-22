@@ -48,8 +48,12 @@ mod tests {
     #[tokio::test]
     async fn init_db_creates_wal_database() {
         let test_data_home = std::env::temp_dir().join(format!(
-            "safqah-test-data-{}",
-            std::process::id()
+            "safqah-test-data-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be valid")
+                .as_nanos()
         ));
         std::fs::create_dir_all(&test_data_home).expect("temp data dir should be writable");
         std::env::set_var("XDG_DATA_HOME", &test_data_home);
