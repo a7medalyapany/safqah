@@ -420,15 +420,17 @@ mod tests {
 
     static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-    async fn test_pool() -> DbPool {
+    async fn test_pool() -> Result<DbPool, AppError> {
         let unique_suffix = TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed);
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+
         let db_path = std::env::temp_dir().join(format!(
             "safqah-items-test-{}-{}-{}.db",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be valid")
-                .as_nanos(),
+            nanos,
             unique_suffix
         ));
 
@@ -441,28 +443,31 @@ mod tests {
             .max_connections(1)
             .connect_with(options)
             .await
-            .expect("test db should connect");
+            .map_err(AppError::from)?;
 
         sqlx::migrate!("./src/db/migrations")
             .run(&pool)
             .await
-            .expect("migrations should run");
+            .map_err(|e| {
+                AppError::new(
+                    "TEST_MIGRATE_FAILED",
+                    "فشل تشغيل migrations للاختبار",
+                    &format!("Test migrations failed: {e}"),
+                )
+            })?;
 
-        pool
+        Ok(pool)
     }
 
     #[tokio::test]
-    async fn item_crud_flow_works() {
-        let pool = test_pool().await;
+    async fn item_crud_flow_works() -> Result<(), AppError> {
+        let pool = test_pool().await?;
 
         let category = create_category_impl(&pool, "فئة اختبار".to_owned())
-            .await
-            .expect("category should be created");
+            .await?;
         assert_eq!(category.name_ar, "فئة اختبار");
 
-        let categories = list_categories_impl(&pool)
-            .await
-            .expect("categories should list");
+        let categories = list_categories_impl(&pool).await?;
         assert_eq!(categories.len(), 1);
 
         let created = create_item_impl(
@@ -483,18 +488,13 @@ mod tests {
                 image_path: None,
             },
         )
-        .await
-        .expect("item should be created");
+        .await?;
         assert_eq!(created.name_ar, "صنف اختبار");
 
-        let listed = list_items_impl(&pool, Some("صنف".to_owned()), Some(category.id))
-            .await
-            .expect("items should list");
+        let listed = list_items_impl(&pool, Some("صنف".to_owned()), Some(category.id)).await?;
         assert_eq!(listed.len(), 1);
 
-        let by_barcode = get_item_by_barcode_impl(&pool, "TEST-CRUD-1".to_owned())
-            .await
-            .expect("item should be found by barcode");
+        let by_barcode = get_item_by_barcode_impl(&pool, "TEST-CRUD-1".to_owned()).await?;
         assert_eq!(by_barcode.id, created.id);
 
         let updated = update_item_impl(
@@ -516,33 +516,29 @@ mod tests {
                 image_path: None,
             },
         )
-        .await
-        .expect("item should be updated");
+        .await?;
         assert_eq!(updated.name_ar, "صنف محدث");
         assert_eq!(updated.sell_price_millieme, 15000);
         assert_eq!(updated.current_stock, 7);
 
-        let deleted = delete_item_impl(&pool, created.id)
-            .await
-            .expect("delete should succeed");
+        let deleted = delete_item_impl(&pool, created.id).await?;
         assert!(deleted);
 
-        let listed_after_delete = list_items_impl(&pool, Some("TEST-CRUD-1".to_owned()), None)
-            .await
-            .expect("items should list after delete");
+        let listed_after_delete =
+            list_items_impl(&pool, Some("TEST-CRUD-1".to_owned()), None).await?;
         assert!(listed_after_delete.is_empty());
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn delete_category_fails_when_in_use_and_succeeds_when_unused() {
-        let pool = test_pool().await;
+    async fn delete_category_fails_when_in_use_and_succeeds_when_unused() -> Result<(), AppError> {
+        let pool = test_pool().await?;
 
         let used_category = create_category_impl(&pool, "فئة مستخدمة".to_owned())
-            .await
-            .expect("used category should be created");
+            .await?;
         let unused_category = create_category_impl(&pool, "فئة غير مستخدمة".to_owned())
-            .await
-            .expect("unused category should be created");
+            .await?;
 
         create_item_impl(
             &pool,
@@ -562,8 +558,7 @@ mod tests {
                 image_path: None,
             },
         )
-        .await
-        .expect("item should be created");
+        .await?;
 
         let error = delete_category_impl(&pool, used_category.id)
             .await
@@ -572,14 +567,13 @@ mod tests {
         assert_eq!(error.message_ar, "لا يمكن حذف التصنيف لأنه مستخدم في 1 أصناف");
 
         let deleted = delete_category_impl(&pool, unused_category.id)
-            .await
-            .expect("unused category should be deleted");
+            .await?;
         assert!(deleted);
 
-        let categories = list_categories_impl(&pool)
-            .await
-            .expect("categories should still list");
+        let categories = list_categories_impl(&pool).await?;
         assert_eq!(categories.len(), 1);
         assert_eq!(categories[0].id, used_category.id);
+
+        Ok(())
     }
 }

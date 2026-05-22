@@ -457,7 +457,12 @@ async fn create_sale_invoice_impl_tx(
 
     #[cfg(test)]
     if matches!(fail_point, Some(SaleFailPoint::AfterInvoiceItems)) {
-        panic!("test failpoint after invoice_items");
+        // A test-only failpoint used to verify transaction rollback behavior without panicking.
+        return Err(AppError::new(
+            "TEST_FAILPOINT",
+            "نقطة فشل للاختبار",
+            "Test failpoint",
+        ));
     }
 
     for (payload_item, active_item) in payload.items.iter().zip(validated_items.iter()) {
@@ -758,7 +763,7 @@ mod tests {
 
     static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-    async fn test_pool() -> DbPool {
+    async fn test_pool() -> Result<DbPool, AppError> {
         let db_path = std::env::temp_dir().join(format!(
             "safqah-sales-test-{}-{}.db",
             std::process::id(),
@@ -775,26 +780,32 @@ mod tests {
             .max_connections(1)
             .connect_with(options)
             .await
-            .expect("sqlite test pool should initialize");
+            .map_err(AppError::from)?;
 
         sqlx::migrate!("./src/db/migrations")
             .run(&pool)
             .await
-            .expect("migrations should run");
+            .map_err(|e| {
+                AppError::new(
+                    "TEST_MIGRATE_FAILED",
+                    "فشل تشغيل migrations للاختبار",
+                    &format!("Test migrations failed: {e}"),
+                )
+            })?;
 
-        pool
+        Ok(pool)
     }
 
-    async fn insert_session(pool: &DbPool, status: &str) -> i64 {
+    async fn insert_session(pool: &DbPool, status: &str) -> Result<i64, AppError> {
         sqlx::query("INSERT INTO sessions (cashier_id, opening_cash_millieme, status) VALUES (1, 100000, ?)")
             .bind(status)
             .execute(pool)
             .await
-            .expect("session should be inserted")
-            .last_insert_rowid()
+            .map(|result| result.last_insert_rowid())
+            .map_err(Into::into)
     }
 
-    async fn insert_item(pool: &DbPool, barcode: &str, stock: i64, price: i64) -> i64 {
+    async fn insert_item(pool: &DbPool, barcode: &str, stock: i64, price: i64) -> Result<i64, AppError> {
         sqlx::query(
             r#"
             INSERT INTO items (
@@ -815,19 +826,19 @@ mod tests {
         .bind(stock)
         .execute(pool)
         .await
-        .expect("item should be inserted")
-        .last_insert_rowid()
+        .map(|result| result.last_insert_rowid())
+        .map_err(Into::into)
     }
 
-    async fn insert_customer(pool: &DbPool, balance: i64) -> i64 {
+    async fn insert_customer(pool: &DbPool, balance: i64) -> Result<i64, AppError> {
         sqlx::query(
             "INSERT INTO customers (name, balance_millieme, credit_limit_millieme) VALUES ('عميل اختبار', ?, 50000)",
         )
         .bind(balance)
         .execute(pool)
         .await
-        .expect("customer should be inserted")
-        .last_insert_rowid()
+        .map(|result| result.last_insert_rowid())
+        .map_err(Into::into)
     }
 
     fn payload(session_id: i64, items: Vec<InvoiceItemPayload>) -> CreateSaleInvoicePayload {
@@ -843,11 +854,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_sale_invoice_happy_path_writes_invoice_items_stock_and_movements() {
-        let pool = test_pool().await;
-        let session_id = insert_session(&pool, "open").await;
-        let item_1 = insert_item(&pool, "111", 10, 10000).await;
-        let item_2 = insert_item(&pool, "222", 20, 15000).await;
+    async fn create_sale_invoice_happy_path_writes_invoice_items_stock_and_movements(
+    ) -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_1 = insert_item(&pool, "111", 10, 10000).await?;
+        let item_2 = insert_item(&pool, "222", 20, 15000).await?;
 
         let mut request = payload(
             session_id,
@@ -868,9 +880,7 @@ mod tests {
         );
         request.paid_millieme = 64000;
 
-        let invoice = create_sale_invoice_impl(&pool, request)
-            .await
-            .expect("invoice should be created");
+        let invoice = create_sale_invoice_impl(&pool, request).await?;
 
         assert_eq!(invoice.invoice_number, "INV-000001");
         assert_eq!(invoice.items.len(), 2);
@@ -882,20 +892,17 @@ mod tests {
             sqlx::query_as("SELECT COUNT(*) FROM invoice_items WHERE invoice_id = ?")
                 .bind(invoice.id)
                 .fetch_one(&pool)
-                .await
-                .expect("invoice item count should be readable");
+                .await?;
         assert_eq!(item_count, 2);
 
         let (stock_1,): (i64,) = sqlx::query_as("SELECT current_stock FROM items WHERE id = ?")
             .bind(item_1)
             .fetch_one(&pool)
-            .await
-            .expect("stock should be readable");
+            .await?;
         let (stock_2,): (i64,) = sqlx::query_as("SELECT current_stock FROM items WHERE id = ?")
             .bind(item_2)
             .fetch_one(&pool)
-            .await
-            .expect("stock should be readable");
+            .await?;
         assert_eq!(stock_1, 8);
         assert_eq!(stock_2, 17);
 
@@ -904,16 +911,18 @@ mod tests {
         )
         .bind(invoice.id)
         .fetch_all(&pool)
-        .await
-        .expect("stock movements should be readable");
+        .await?;
         assert_eq!(movements, vec![(-2,), (-3,)]);
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn create_sale_invoice_rolls_back_invoice_items_and_stock_after_panic() {
-        let pool = test_pool().await;
-        let session_id = insert_session(&pool, "open").await;
-        let item_id = insert_item(&pool, "333", 7, 12000).await;
+    async fn create_sale_invoice_rolls_back_invoice_items_and_stock_after_failpoint(
+    ) -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_id = insert_item(&pool, "333", 7, 12000).await?;
 
         let mut request = payload(
             session_id,
@@ -926,45 +935,41 @@ mod tests {
         );
         request.paid_millieme = 24000;
 
-        let panic_pool = pool.clone();
-        let result = tokio::spawn(async move {
-            create_sale_invoice_impl_inner(
-                &panic_pool,
-                request,
-                Some(SaleFailPoint::AfterInvoiceItems),
-            )
-            .await
-        })
-        .await;
-
-        assert!(result.is_err(), "test failpoint should panic");
+        let err = create_sale_invoice_impl_inner(
+            &pool,
+            request,
+            Some(SaleFailPoint::AfterInvoiceItems),
+        )
+        .await
+        .expect_err("test failpoint should error");
+        assert_eq!(err.code, "TEST_FAILPOINT");
 
         let (invoice_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM invoices")
             .fetch_one(&pool)
-            .await
-            .expect("invoice count should be readable");
+            .await?;
         assert_eq!(invoice_count, 0);
 
         let (item_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM invoice_items")
             .fetch_one(&pool)
-            .await
-            .expect("invoice item count should be readable");
+            .await?;
         assert_eq!(item_count, 0);
 
         let (stock,): (i64,) = sqlx::query_as("SELECT current_stock FROM items WHERE id = ?")
             .bind(item_id)
             .fetch_one(&pool)
-            .await
-            .expect("stock should be readable");
+            .await?;
         assert_eq!(stock, 7);
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn create_sale_invoice_deferred_payment_updates_customer_balance() {
-        let pool = test_pool().await;
-        let session_id = insert_session(&pool, "open").await;
-        let item_id = insert_item(&pool, "444", 5, 10000).await;
-        let customer_id = insert_customer(&pool, 3000).await;
+    async fn create_sale_invoice_deferred_payment_updates_customer_balance(
+    ) -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_id = insert_item(&pool, "444", 5, 10000).await?;
+        let customer_id = insert_customer(&pool, 3000).await?;
 
         let mut request = payload(
             session_id,
@@ -979,9 +984,7 @@ mod tests {
         request.payment_method = "deferred".to_owned();
         request.paid_millieme = 20000;
 
-        let invoice = create_sale_invoice_impl(&pool, request)
-            .await
-            .expect("deferred invoice should be created");
+        let invoice = create_sale_invoice_impl(&pool, request).await?;
 
         assert_eq!(invoice.status, "deferred");
         assert_eq!(invoice.paid_millieme, 0);
@@ -990,16 +993,18 @@ mod tests {
             sqlx::query_as("SELECT balance_millieme FROM customers WHERE id = ?")
                 .bind(customer_id)
                 .fetch_one(&pool)
-                .await
-                .expect("customer balance should be readable");
+                .await?;
         assert_eq!(balance, 23000);
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn create_sale_invoice_rejects_closed_or_missing_session_without_writes() {
-        let pool = test_pool().await;
-        let session_id = insert_session(&pool, "closed").await;
-        let item_id = insert_item(&pool, "555", 5, 10000).await;
+    async fn create_sale_invoice_rejects_closed_or_missing_session_without_writes(
+    ) -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "closed").await?;
+        let item_id = insert_item(&pool, "555", 5, 10000).await?;
 
         let mut request = payload(
             session_id,
@@ -1021,8 +1026,7 @@ mod tests {
 
         let (invoice_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM invoices")
             .fetch_one(&pool)
-            .await
-            .expect("invoice count should be readable");
+            .await?;
         assert_eq!(invoice_count, 0);
 
         let missing_session_error = create_sale_invoice_impl(
@@ -1046,13 +1050,15 @@ mod tests {
         .expect_err("missing session should fail");
 
         assert_eq!(missing_session_error.code, "SESSION_NOT_OPEN");
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn create_return_restores_stock_and_writes_positive_movement() {
-        let pool = test_pool().await;
-        let session_id = insert_session(&pool, "open").await;
-        let item_id = insert_item(&pool, "666", 10, 10000).await;
+    async fn create_return_restores_stock_and_writes_positive_movement() -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_id = insert_item(&pool, "666", 10, 10000).await?;
 
         let mut request = payload(
             session_id,
@@ -1064,9 +1070,7 @@ mod tests {
             }],
         );
         request.paid_millieme = 50000;
-        let invoice = create_sale_invoice_impl(&pool, request)
-            .await
-            .expect("invoice should be created");
+        let invoice = create_sale_invoice_impl(&pool, request).await?;
 
         let return_result = create_return_impl(
             &pool,
@@ -1082,8 +1086,7 @@ mod tests {
                 notes: None,
             },
         )
-        .await
-        .expect("return should be created");
+        .await?;
 
         assert_eq!(return_result.return_number, "RET-000001");
         assert_eq!(return_result.total_millieme, 20000);
@@ -1092,8 +1095,7 @@ mod tests {
         let (stock,): (i64,) = sqlx::query_as("SELECT current_stock FROM items WHERE id = ?")
             .bind(item_id)
             .fetch_one(&pool)
-            .await
-            .expect("stock should be readable");
+            .await?;
         assert_eq!(stock, 7);
 
         let movement: (i64, String, String) = sqlx::query_as(
@@ -1105,16 +1107,18 @@ mod tests {
         )
         .bind(return_result.id)
         .fetch_one(&pool)
-        .await
-        .expect("return movement should be readable");
+        .await?;
         assert_eq!(movement, (2, "return".to_owned(), "return".to_owned()));
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn create_return_rejects_more_than_original_or_remaining_quantity() {
-        let pool = test_pool().await;
-        let session_id = insert_session(&pool, "open").await;
-        let item_id = insert_item(&pool, "777", 10, 10000).await;
+    async fn create_return_rejects_more_than_original_or_remaining_quantity(
+    ) -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_id = insert_item(&pool, "777", 10, 10000).await?;
 
         let mut request = payload(
             session_id,
@@ -1126,9 +1130,7 @@ mod tests {
             }],
         );
         request.paid_millieme = 50000;
-        let invoice = create_sale_invoice_impl(&pool, request)
-            .await
-            .expect("invoice should be created");
+        let invoice = create_sale_invoice_impl(&pool, request).await?;
 
         let too_much = create_return_impl(
             &pool,
@@ -1163,8 +1165,7 @@ mod tests {
                 notes: None,
             },
         )
-        .await
-        .expect("full return should be created");
+        .await?;
 
         let duplicate = create_return_impl(
             &pool,
@@ -1184,14 +1185,16 @@ mod tests {
         .expect_err("returning already returned units should fail");
         assert_eq!(duplicate.code, "RETURN_EXCEEDS_ORIGINAL");
         assert_eq!(duplicate.message_ar, "كمية المرتجع أكبر من الكمية المباعة");
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn create_return_credit_reduces_customer_balance() {
-        let pool = test_pool().await;
-        let session_id = insert_session(&pool, "open").await;
-        let item_id = insert_item(&pool, "888", 10, 10000).await;
-        let customer_id = insert_customer(&pool, 40000).await;
+    async fn create_return_credit_reduces_customer_balance() -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_id = insert_item(&pool, "888", 10, 10000).await?;
+        let customer_id = insert_customer(&pool, 40000).await?;
 
         let mut request = payload(
             session_id,
@@ -1204,9 +1207,7 @@ mod tests {
         );
         request.customer_id = Some(customer_id);
         request.payment_method = "deferred".to_owned();
-        let invoice = create_sale_invoice_impl(&pool, request)
-            .await
-            .expect("invoice should be created");
+        let invoice = create_sale_invoice_impl(&pool, request).await?;
 
         create_return_impl(
             &pool,
@@ -1222,15 +1223,15 @@ mod tests {
                 notes: None,
             },
         )
-        .await
-        .expect("credit return should be created");
+        .await?;
 
         let (balance,): (i64,) =
             sqlx::query_as("SELECT balance_millieme FROM customers WHERE id = ?")
                 .bind(customer_id)
                 .fetch_one(&pool)
-                .await
-                .expect("customer balance should be readable");
+                .await?;
         assert_eq!(balance, 50000);
+
+        Ok(())
     }
 }
