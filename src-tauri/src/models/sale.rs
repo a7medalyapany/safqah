@@ -171,8 +171,64 @@ pub struct InvoiceItemDetail {
     pub item_id: i64,
     pub item_name_ar: String,
     pub qty: i64,
+    pub returned_qty: i64,
     pub unit_price_millieme: i64,
     pub discount_millieme: i64,
+    pub total_millieme: i64,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct Return {
+    pub id: i64,
+    pub return_number: String,
+    pub original_invoice_id: i64,
+    pub session_id: i64,
+    pub total_millieme: i64,
+    pub refund_method: String,
+    pub status: String,
+    pub notes: Option<String>,
+    pub created_at: String,
+    pub items: Vec<ReturnItem>,
+}
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+pub struct ReturnRow {
+    pub id: i64,
+    pub return_number: String,
+    pub original_invoice_id: i64,
+    pub session_id: i64,
+    pub total_millieme: i64,
+    pub refund_method: String,
+    pub status: String,
+    pub notes: Option<String>,
+    pub created_at: String,
+}
+
+impl ReturnRow {
+    pub fn with_items(self, items: Vec<ReturnItem>) -> Return {
+        Return {
+            id: self.id,
+            return_number: self.return_number,
+            original_invoice_id: self.original_invoice_id,
+            session_id: self.session_id,
+            total_millieme: self.total_millieme,
+            refund_method: self.refund_method,
+            status: self.status,
+            notes: self.notes,
+            created_at: self.created_at,
+            items,
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+pub struct ReturnItem {
+    pub id: i64,
+    pub return_id: i64,
+    pub invoice_item_id: i64,
+    pub item_id: i64,
+    pub qty: i64,
+    pub unit_price_millieme: i64,
     pub total_millieme: i64,
 }
 
@@ -195,4 +251,22 @@ pub struct InvoiceItemPayload {
     pub qty: i64,
     pub unit_price_millieme: i64,
     pub discount_millieme: i64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateReturnPayload {
+    pub original_invoice_id: i64,
+    pub session_id: i64,
+    pub items: Vec<ReturnItemPayload>,
+    pub refund_method: String,
+    pub notes: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReturnItemPayload {
+    pub invoice_item_id: i64,
+    pub item_id: i64,
+    pub qty: i64,
 }

@@ -16,7 +16,8 @@ use commands::{
     },
     print::{list_printers, print_receipt},
     sales::{
-        create_sale_invoice, get_invoice_detail, get_invoice_stats, list_invoices, search_items,
+        create_return, create_sale_invoice, get_invoice_detail, get_invoice_stats, list_invoices,
+        search_items,
     },
     sessions::{
         close_session, get_active_session, get_session_sales_total_millieme, open_session,
@@ -85,6 +86,7 @@ pub fn run() {
             close_session,
             get_session_sales_total_millieme,
             create_sale_invoice,
+            create_return,
             list_invoices,
             get_invoice_detail,
             get_invoice_stats,

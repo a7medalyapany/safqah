@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use sqlx::{QueryBuilder, Sqlite, Transaction};
 use tauri::State;
 
@@ -7,9 +9,9 @@ use crate::{
     models::{
         item::Item,
         sale::{
-            CreateSaleInvoicePayload, Invoice, InvoiceDetail, InvoiceDetailRow, InvoiceFilters,
-            InvoiceItem, InvoiceItemDetail, InvoiceItemPayload, InvoiceRow, InvoiceStats,
-            InvoiceSummary,
+            CreateReturnPayload, CreateSaleInvoicePayload, Invoice, InvoiceDetail,
+            InvoiceDetailRow, InvoiceFilters, InvoiceItem, InvoiceItemDetail, InvoiceItemPayload,
+            InvoiceRow, InvoiceStats, InvoiceSummary, Return, ReturnItem, ReturnRow,
         },
     },
 };
@@ -20,6 +22,14 @@ struct ActiveItem {
     barcode: Option<String>,
     current_stock: i64,
     name_ar: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct ReturnableInvoiceItem {
+    id: i64,
+    item_id: i64,
+    qty: i64,
+    unit_price_millieme: i64,
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -240,6 +250,11 @@ async fn get_invoice_detail_impl(
           item_id,
           item_name_ar,
           qty,
+          COALESCE((
+            SELECT SUM(return_items.qty)
+            FROM return_items
+            WHERE return_items.invoice_item_id = invoice_items.id
+          ), 0) AS returned_qty,
           unit_price_millieme,
           discount_millieme,
           total_millieme
@@ -287,6 +302,33 @@ fn validate_payload(payload: &CreateSaleInvoicePayload) -> Result<(), AppError> 
     }
 
     Ok(())
+}
+
+fn return_exceeds_original_error() -> AppError {
+    AppError::new(
+        "RETURN_EXCEEDS_ORIGINAL",
+        "كمية المرتجع أكبر من الكمية المباعة",
+        "Return quantity exceeds original sold quantity",
+    )
+}
+
+fn validate_return_payload(payload: &CreateReturnPayload) -> Result<String, AppError> {
+    if payload.items.is_empty() {
+        return Err(AppError::validation("اختر صنفًا واحدًا على الأقل للمرتجع"));
+    }
+
+    for item in &payload.items {
+        if item.qty <= 0 {
+            return Err(AppError::validation("كمية المرتجع غير صحيحة"));
+        }
+    }
+
+    let refund_method = payload.refund_method.trim().to_owned();
+    if !matches!(refund_method.as_str(), "cash" | "credit") {
+        return Err(AppError::validation("طريقة رد المبلغ غير صحيحة"));
+    }
+
+    Ok(refund_method)
 }
 
 fn sale_status_and_paid(
@@ -460,6 +502,201 @@ async fn create_sale_invoice_impl_tx(
     get_invoice_by_id(pool, invoice_id).await
 }
 
+async fn get_return_by_id(pool: &DbPool, return_id: i64) -> Result<Return, AppError> {
+    let return_row = sqlx::query_as::<_, ReturnRow>("SELECT * FROM returns WHERE id = ?")
+        .bind(return_id)
+        .fetch_one(pool)
+        .await?;
+
+    let items = sqlx::query_as::<_, ReturnItem>(
+        "SELECT * FROM return_items WHERE return_id = ? ORDER BY id ASC",
+    )
+    .bind(return_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(return_row.with_items(items))
+}
+
+async fn create_return_impl(
+    pool: &DbPool,
+    payload: CreateReturnPayload,
+) -> Result<Return, AppError> {
+    let refund_method = validate_return_payload(&payload)?;
+    let mut tx = pool.begin().await?;
+
+    ensure_open_session(&mut tx, payload.session_id).await?;
+
+    let invoice: Option<(Option<i64>, String)> =
+        sqlx::query_as("SELECT customer_id, status FROM invoices WHERE id = ?")
+            .bind(payload.original_invoice_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    let (customer_id, invoice_status) = invoice.ok_or_else(|| AppError::not_found("الفاتورة"))?;
+    if invoice_status == "cancelled" {
+        return Err(AppError::validation("لا يمكن تسجيل مرتجع لفاتورة ملغية"));
+    }
+
+    let mut requested_by_invoice_item: HashMap<i64, i64> = HashMap::new();
+    for item in &payload.items {
+        *requested_by_invoice_item
+            .entry(item.invoice_item_id)
+            .or_insert(0) += item.qty;
+    }
+
+    for (invoice_item_id, requested_qty) in &requested_by_invoice_item {
+        let original: ReturnableInvoiceItem = sqlx::query_as(
+            r#"
+            SELECT id, item_id, qty, unit_price_millieme
+            FROM invoice_items
+            WHERE id = ? AND invoice_id = ?
+            "#,
+        )
+        .bind(invoice_item_id)
+        .bind(payload.original_invoice_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::not_found("صنف الفاتورة"))?;
+
+        let (already_returned,): (i64,) = sqlx::query_as(
+            "SELECT COALESCE(SUM(qty), 0) FROM return_items WHERE invoice_item_id = ?",
+        )
+        .bind(invoice_item_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if already_returned + *requested_qty > original.qty {
+            return Err(return_exceeds_original_error());
+        }
+    }
+
+    let mut validated_items = Vec::with_capacity(payload.items.len());
+    for item in &payload.items {
+        let original: ReturnableInvoiceItem = sqlx::query_as(
+            r#"
+            SELECT id, item_id, qty, unit_price_millieme
+            FROM invoice_items
+            WHERE id = ? AND item_id = ? AND invoice_id = ?
+            "#,
+        )
+        .bind(item.invoice_item_id)
+        .bind(item.item_id)
+        .bind(payload.original_invoice_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::not_found("صنف الفاتورة"))?;
+
+        validated_items.push(original);
+    }
+
+    let (return_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM returns")
+        .fetch_one(&mut *tx)
+        .await?;
+    let return_number = format!("RET-{:06}", return_count + 1);
+
+    let total_millieme: i64 = payload
+        .items
+        .iter()
+        .zip(validated_items.iter())
+        .map(|(item, original)| original.unit_price_millieme * item.qty)
+        .sum();
+    let notes = normalize_optional_string(payload.notes);
+
+    let result = sqlx::query(
+        r#"
+        INSERT INTO returns (
+          return_number,
+          original_invoice_id,
+          session_id,
+          total_millieme,
+          refund_method,
+          status,
+          notes
+        )
+        VALUES (?, ?, ?, ?, ?, 'completed', ?)
+        "#,
+    )
+    .bind(&return_number)
+    .bind(payload.original_invoice_id)
+    .bind(payload.session_id)
+    .bind(total_millieme)
+    .bind(&refund_method)
+    .bind(notes)
+    .execute(&mut *tx)
+    .await?;
+
+    let return_id = result.last_insert_rowid();
+
+    for (item, original) in payload.items.iter().zip(validated_items.iter()) {
+        let line_total = original.unit_price_millieme * item.qty;
+
+        sqlx::query(
+            r#"
+            INSERT INTO return_items (
+              return_id,
+              invoice_item_id,
+              item_id,
+              qty,
+              unit_price_millieme,
+              total_millieme
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(return_id)
+        .bind(original.id)
+        .bind(original.item_id)
+        .bind(item.qty)
+        .bind(original.unit_price_millieme)
+        .bind(line_total)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "UPDATE items SET current_stock = current_stock + ?, updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(item.qty)
+        .bind(original.item_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO stock_movements (
+              item_id,
+              delta,
+              movement_type,
+              reference_id,
+              reference_type
+            )
+            VALUES (?, ?, 'return', ?, 'return')
+            "#,
+        )
+        .bind(original.item_id)
+        .bind(item.qty)
+        .bind(return_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    if refund_method == "credit" {
+        if let Some(customer_id) = customer_id {
+            sqlx::query(
+                "UPDATE customers SET balance_millieme = balance_millieme - ? WHERE id = ?",
+            )
+            .bind(total_millieme)
+            .bind(customer_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    tx.commit().await?;
+
+    get_return_by_id(pool, return_id).await
+}
+
 #[tauri::command]
 pub async fn search_items(
     pool: State<'_, DbPool>,
@@ -498,23 +735,34 @@ pub async fn create_sale_invoice(
     create_sale_invoice_impl(&pool, payload).await
 }
 
+#[tauri::command]
+pub async fn create_return(
+    pool: State<'_, DbPool>,
+    payload: CreateReturnPayload,
+) -> Result<Return, AppError> {
+    create_return_impl(&pool, payload).await
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
     use sqlx::{
         sqlite::{SqliteConnectOptions, SqlitePoolOptions},
         ConnectOptions,
     };
 
+    use crate::models::sale::ReturnItemPayload;
+
     use super::*;
+
+    static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     async fn test_pool() -> DbPool {
         let db_path = std::env::temp_dir().join(format!(
             "safqah-sales-test-{}-{}.db",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be valid")
-                .as_nanos()
+            TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
 
         let options = SqliteConnectOptions::new()
@@ -798,5 +1046,191 @@ mod tests {
         .expect_err("missing session should fail");
 
         assert_eq!(missing_session_error.code, "SESSION_NOT_OPEN");
+    }
+
+    #[tokio::test]
+    async fn create_return_restores_stock_and_writes_positive_movement() {
+        let pool = test_pool().await;
+        let session_id = insert_session(&pool, "open").await;
+        let item_id = insert_item(&pool, "666", 10, 10000).await;
+
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 5,
+                unit_price_millieme: 10000,
+                discount_millieme: 0,
+            }],
+        );
+        request.paid_millieme = 50000;
+        let invoice = create_sale_invoice_impl(&pool, request)
+            .await
+            .expect("invoice should be created");
+
+        let return_result = create_return_impl(
+            &pool,
+            CreateReturnPayload {
+                original_invoice_id: invoice.id,
+                session_id,
+                items: vec![ReturnItemPayload {
+                    invoice_item_id: invoice.items[0].id,
+                    item_id,
+                    qty: 2,
+                }],
+                refund_method: "cash".to_owned(),
+                notes: None,
+            },
+        )
+        .await
+        .expect("return should be created");
+
+        assert_eq!(return_result.return_number, "RET-000001");
+        assert_eq!(return_result.total_millieme, 20000);
+        assert_eq!(return_result.items.len(), 1);
+
+        let (stock,): (i64,) = sqlx::query_as("SELECT current_stock FROM items WHERE id = ?")
+            .bind(item_id)
+            .fetch_one(&pool)
+            .await
+            .expect("stock should be readable");
+        assert_eq!(stock, 7);
+
+        let movement: (i64, String, String) = sqlx::query_as(
+            r#"
+            SELECT delta, movement_type, reference_type
+            FROM stock_movements
+            WHERE reference_id = ? AND movement_type = 'return'
+            "#,
+        )
+        .bind(return_result.id)
+        .fetch_one(&pool)
+        .await
+        .expect("return movement should be readable");
+        assert_eq!(movement, (2, "return".to_owned(), "return".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn create_return_rejects_more_than_original_or_remaining_quantity() {
+        let pool = test_pool().await;
+        let session_id = insert_session(&pool, "open").await;
+        let item_id = insert_item(&pool, "777", 10, 10000).await;
+
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 5,
+                unit_price_millieme: 10000,
+                discount_millieme: 0,
+            }],
+        );
+        request.paid_millieme = 50000;
+        let invoice = create_sale_invoice_impl(&pool, request)
+            .await
+            .expect("invoice should be created");
+
+        let too_much = create_return_impl(
+            &pool,
+            CreateReturnPayload {
+                original_invoice_id: invoice.id,
+                session_id,
+                items: vec![ReturnItemPayload {
+                    invoice_item_id: invoice.items[0].id,
+                    item_id,
+                    qty: 6,
+                }],
+                refund_method: "cash".to_owned(),
+                notes: None,
+            },
+        )
+        .await
+        .expect_err("returning more than sold should fail");
+        assert_eq!(too_much.code, "RETURN_EXCEEDS_ORIGINAL");
+        assert_eq!(too_much.message_ar, "كمية المرتجع أكبر من الكمية المباعة");
+
+        create_return_impl(
+            &pool,
+            CreateReturnPayload {
+                original_invoice_id: invoice.id,
+                session_id,
+                items: vec![ReturnItemPayload {
+                    invoice_item_id: invoice.items[0].id,
+                    item_id,
+                    qty: 5,
+                }],
+                refund_method: "cash".to_owned(),
+                notes: None,
+            },
+        )
+        .await
+        .expect("full return should be created");
+
+        let duplicate = create_return_impl(
+            &pool,
+            CreateReturnPayload {
+                original_invoice_id: invoice.id,
+                session_id,
+                items: vec![ReturnItemPayload {
+                    invoice_item_id: invoice.items[0].id,
+                    item_id,
+                    qty: 1,
+                }],
+                refund_method: "cash".to_owned(),
+                notes: None,
+            },
+        )
+        .await
+        .expect_err("returning already returned units should fail");
+        assert_eq!(duplicate.code, "RETURN_EXCEEDS_ORIGINAL");
+        assert_eq!(duplicate.message_ar, "كمية المرتجع أكبر من الكمية المباعة");
+    }
+
+    #[tokio::test]
+    async fn create_return_credit_reduces_customer_balance() {
+        let pool = test_pool().await;
+        let session_id = insert_session(&pool, "open").await;
+        let item_id = insert_item(&pool, "888", 10, 10000).await;
+        let customer_id = insert_customer(&pool, 40000).await;
+
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 3,
+                unit_price_millieme: 10000,
+                discount_millieme: 0,
+            }],
+        );
+        request.customer_id = Some(customer_id);
+        request.payment_method = "deferred".to_owned();
+        let invoice = create_sale_invoice_impl(&pool, request)
+            .await
+            .expect("invoice should be created");
+
+        create_return_impl(
+            &pool,
+            CreateReturnPayload {
+                original_invoice_id: invoice.id,
+                session_id,
+                items: vec![ReturnItemPayload {
+                    invoice_item_id: invoice.items[0].id,
+                    item_id,
+                    qty: 2,
+                }],
+                refund_method: "credit".to_owned(),
+                notes: None,
+            },
+        )
+        .await
+        .expect("credit return should be created");
+
+        let (balance,): (i64,) =
+            sqlx::query_as("SELECT balance_millieme FROM customers WHERE id = ?")
+                .bind(customer_id)
+                .fetch_one(&pool)
+                .await
+                .expect("customer balance should be readable");
+        assert_eq!(balance, 50000);
     }
 }
