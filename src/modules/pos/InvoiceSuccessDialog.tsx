@@ -10,13 +10,13 @@ import {
 import { formatEGP } from "@/shared/utils/money";
 
 export type SaleInvoiceSuccess = {
-  invoice_id: number;
+  id: number;
   invoice_number: string;
+  subtotal_millieme: number;
+  discount_millieme: number;
   total_millieme: number;
-  paid_cash_millieme: number;
-  paid_card_millieme: number;
-  paid_total_millieme: number;
-  change_millieme: number;
+  paid_millieme: number;
+  status: "paid" | "deferred" | "partial" | "cancelled";
 };
 
 type InvoiceSuccessDialogProps = {
@@ -52,12 +52,14 @@ export function InvoiceSuccessDialog({
             </div>
             <div className="flex items-center justify-between gap-3">
               <span className="text-sm text-muted-foreground">إجمالي المدفوع</span>
-              <span className="font-semibold">{formatEGP(invoice.paid_total_millieme)}</span>
+              <span className="font-semibold">{formatEGP(invoice.paid_millieme)}</span>
             </div>
-            {invoice.change_millieme > 0 ? (
+            {invoice.paid_millieme > invoice.total_millieme ? (
               <div className="flex items-center justify-between gap-3">
                 <span className="text-sm text-muted-foreground">الباقي</span>
-                <span className="font-semibold">{formatEGP(invoice.change_millieme)}</span>
+                <span className="font-semibold">
+                  {formatEGP(invoice.paid_millieme - invoice.total_millieme)}
+                </span>
               </div>
             ) : null}
           </div>

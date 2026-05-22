@@ -5,11 +5,28 @@ use crate::{
     db::DbPool,
     errors::AppError,
     models::{
-        customer::Customer,
         item::Item,
-        sale::{CreateSaleInvoicePayload, CreateSaleInvoiceResponse, Invoice},
+        sale::{
+            CreateSaleInvoicePayload, Invoice, InvoiceDetail, InvoiceDetailRow, InvoiceFilters,
+            InvoiceItem, InvoiceItemDetail, InvoiceItemPayload, InvoiceRow, InvoiceStats,
+            InvoiceSummary,
+        },
     },
 };
+
+#[derive(Debug, sqlx::FromRow)]
+struct ActiveItem {
+    id: i64,
+    barcode: Option<String>,
+    current_stock: i64,
+    name_ar: String,
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Clone, Copy)]
+enum SaleFailPoint {
+    AfterInvoiceItems,
+}
 
 fn normalize_optional_string(value: Option<String>) -> Option<String> {
     value.and_then(|value| {
@@ -22,55 +39,68 @@ fn normalize_optional_string(value: Option<String>) -> Option<String> {
     })
 }
 
-fn compute_line_total(qty: i64, unit_price_millieme: i64, discount_millieme: i64) -> i64 {
-    (qty * unit_price_millieme - discount_millieme).max(0)
+fn compute_line_total(line: &InvoiceItemPayload) -> i64 {
+    (line.unit_price_millieme * line.qty - line.discount_millieme).max(0)
 }
 
-async fn get_active_customer_by_id(
+fn session_not_open_error() -> AppError {
+    AppError::new(
+        "SESSION_NOT_OPEN",
+        "الوردية غير مفتوحة",
+        "Session is not open",
+    )
+}
+
+fn item_not_found_error() -> AppError {
+    AppError::new(
+        "ITEM_NOT_FOUND",
+        "الصنف غير موجود أو غير نشط",
+        "Item not found or inactive",
+    )
+}
+
+async fn ensure_open_session(
     tx: &mut Transaction<'_, Sqlite>,
-    id: i64,
-) -> Result<Customer, AppError> {
-    sqlx::query_as::<_, Customer>("SELECT * FROM customers WHERE id = ? AND is_active = 1")
-        .bind(id)
+    session_id: i64,
+) -> Result<(), AppError> {
+    let status: Option<(String,)> = sqlx::query_as("SELECT status FROM sessions WHERE id = ?")
+        .bind(session_id)
         .fetch_optional(&mut **tx)
-        .await?
-        .ok_or_else(|| AppError::not_found("العميل"))
-}
+        .await?;
 
-async fn get_active_item_by_id(
-    tx: &mut Transaction<'_, Sqlite>,
-    id: i64,
-) -> Result<Item, AppError> {
-    sqlx::query_as::<_, Item>("SELECT * FROM items WHERE id = ? AND is_active = 1")
-        .bind(id)
-        .fetch_optional(&mut **tx)
-        .await?
-        .ok_or_else(|| AppError::not_found("الصنف"))
-}
-
-async fn get_invoice_by_id(
-    tx: &mut Transaction<'_, Sqlite>,
-    id: i64,
-) -> Result<Invoice, AppError> {
-    sqlx::query_as::<_, Invoice>("SELECT * FROM invoices WHERE id = ?")
-        .bind(id)
-        .fetch_one(&mut **tx)
-        .await
-        .map_err(Into::into)
-}
-
-async fn ensure_open_session(tx: &mut Transaction<'_, Sqlite>, session_id: i64) -> Result<(), AppError> {
-    let session: Option<(i64,)> =
-        sqlx::query_as("SELECT id FROM sessions WHERE id = ? AND status = 'open'")
-            .bind(session_id)
-            .fetch_optional(&mut **tx)
-            .await?;
-
-    if session.is_none() {
-        return Err(AppError::validation("لا توجد وردية مفتوحة لإتمام البيع"));
+    match status {
+        Some((status,)) if status == "open" => Ok(()),
+        _ => Err(session_not_open_error()),
     }
+}
 
-    Ok(())
+async fn get_active_item(
+    tx: &mut Transaction<'_, Sqlite>,
+    item_id: i64,
+) -> Result<ActiveItem, AppError> {
+    sqlx::query_as::<_, ActiveItem>(
+        "SELECT id, barcode, current_stock, name_ar FROM items WHERE id = ? AND is_active = 1",
+    )
+    .bind(item_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or_else(item_not_found_error)
+}
+
+async fn get_invoice_by_id(pool: &DbPool, invoice_id: i64) -> Result<Invoice, AppError> {
+    let invoice = sqlx::query_as::<_, InvoiceRow>("SELECT * FROM invoices WHERE id = ?")
+        .bind(invoice_id)
+        .fetch_one(pool)
+        .await?;
+
+    let items = sqlx::query_as::<_, InvoiceItem>(
+        "SELECT * FROM invoice_items WHERE invoice_id = ? ORDER BY id ASC",
+    )
+    .bind(invoice_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(invoice.with_items(items))
 }
 
 async fn search_items_impl(
@@ -101,145 +131,261 @@ async fn search_items_impl(
         .map_err(Into::into)
 }
 
-async fn create_sale_invoice_impl(
+async fn list_invoices_impl(
     pool: &DbPool,
-    payload: CreateSaleInvoicePayload,
-) -> Result<CreateSaleInvoiceResponse, AppError> {
+    filters: InvoiceFilters,
+) -> Result<Vec<InvoiceSummary>, AppError> {
+    let mut query = QueryBuilder::<Sqlite>::new(
+        r#"
+        SELECT
+          invoices.id,
+          invoices.invoice_number,
+          invoices.customer_id,
+          customers.name AS customer_name,
+          invoices.total_millieme,
+          invoices.paid_millieme,
+          invoices.payment_method,
+          invoices.status,
+          invoices.created_at
+        FROM invoices
+        LEFT JOIN customers ON customers.id = invoices.customer_id
+        WHERE 1 = 1
+        "#,
+    );
+
+    if let Some(date_from) = normalize_optional_string(filters.date_from) {
+        query.push(" AND date(invoices.created_at) >= date(");
+        query.push_bind(date_from);
+        query.push(")");
+    }
+
+    if let Some(date_to) = normalize_optional_string(filters.date_to) {
+        query.push(" AND date(invoices.created_at) <= date(");
+        query.push_bind(date_to);
+        query.push(")");
+    }
+
+    if let Some(customer_id) = filters.customer_id {
+        query.push(" AND invoices.customer_id = ");
+        query.push_bind(customer_id);
+    }
+
+    if let Some(customer_search) = normalize_optional_string(filters.customer_search) {
+        query.push(" AND customers.name LIKE ");
+        query.push_bind(format!("%{customer_search}%"));
+    }
+
+    if let Some(status) = normalize_optional_string(filters.status) {
+        query.push(" AND invoices.status = ");
+        query.push_bind(status);
+    }
+
+    if let Some(payment_method) = normalize_optional_string(filters.payment_method) {
+        query.push(" AND invoices.payment_method = ");
+        query.push_bind(payment_method);
+    }
+
+    let limit = filters.limit.unwrap_or(50).clamp(1, 1000);
+    let offset = filters.offset.unwrap_or(0).max(0);
+
+    query.push(" ORDER BY invoices.created_at DESC, invoices.id DESC LIMIT ");
+    query.push_bind(limit);
+    query.push(" OFFSET ");
+    query.push_bind(offset);
+
+    query
+        .build_query_as::<InvoiceSummary>()
+        .fetch_all(pool)
+        .await
+        .map_err(Into::into)
+}
+
+async fn get_invoice_detail_impl(
+    pool: &DbPool,
+    invoice_id: i64,
+) -> Result<InvoiceDetail, AppError> {
+    let invoice = sqlx::query_as::<_, InvoiceDetailRow>(
+        r#"
+        SELECT
+          invoices.id,
+          invoices.invoice_number,
+          invoices.customer_id,
+          customers.name AS customer_name,
+          invoices.session_id,
+          invoices.cashier_id,
+          invoices.subtotal_millieme,
+          invoices.discount_millieme,
+          invoices.tax_millieme,
+          invoices.total_millieme,
+          invoices.paid_millieme,
+          invoices.payment_method,
+          invoices.status,
+          invoices.notes,
+          invoices.created_at
+        FROM invoices
+        LEFT JOIN customers ON customers.id = invoices.customer_id
+        WHERE invoices.id = ?
+        "#,
+    )
+    .bind(invoice_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("الفاتورة"))?;
+
+    let items = sqlx::query_as::<_, InvoiceItemDetail>(
+        r#"
+        SELECT
+          id,
+          invoice_id,
+          item_id,
+          item_name_ar,
+          qty,
+          unit_price_millieme,
+          discount_millieme,
+          total_millieme
+        FROM invoice_items
+        WHERE invoice_id = ?
+        ORDER BY id ASC
+        "#,
+    )
+    .bind(invoice_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(invoice.with_items(items))
+}
+
+async fn get_invoice_stats_impl(pool: &DbPool) -> Result<InvoiceStats, AppError> {
+    sqlx::query_as::<_, InvoiceStats>(
+        r#"
+        SELECT
+          COUNT(*) AS total_count,
+          COALESCE(SUM(CASE WHEN status = 'paid' THEN 1 ELSE 0 END), 0) AS paid_count,
+          COALESCE(SUM(CASE WHEN status IN ('deferred', 'partial') THEN 1 ELSE 0 END), 0) AS deferred_count,
+          COALESCE(SUM(total_millieme), 0) AS total_sales_millieme
+        FROM invoices
+        "#,
+    )
+    .fetch_one(pool)
+    .await
+    .map_err(Into::into)
+}
+
+fn validate_payload(payload: &CreateSaleInvoicePayload) -> Result<(), AppError> {
     if payload.items.is_empty() {
         return Err(AppError::validation("أضف صنفًا واحدًا على الأقل"));
     }
 
-    if payload.global_discount_millieme < 0
-        || payload.paid_cash_millieme < 0
-        || payload.paid_card_millieme < 0
-    {
+    if payload.global_discount_millieme < 0 || payload.paid_millieme < 0 {
         return Err(AppError::validation("قيم المبالغ غير صحيحة"));
     }
 
-    let payment_method = payload.payment_method.trim().to_owned();
-    if !matches!(payment_method.as_str(), "cash" | "card" | "deferred" | "split") {
-        return Err(AppError::validation("طريقة الدفع غير مدعومة"));
-    }
-
-    let mut tx = pool.begin().await?;
-    ensure_open_session(&mut tx, payload.session_id).await?;
-
-    let customer = if let Some(customer_id) = payload.customer_id {
-        Some(get_active_customer_by_id(&mut tx, customer_id).await?)
-    } else {
-        None
-    };
-
-    if payment_method == "deferred" && customer.is_none() {
-        return Err(AppError::validation("اختيار العميل مطلوب للبيع الآجل"));
-    }
-
-    let mut subtotal_millieme = 0_i64;
-    let mut line_discount_millieme = 0_i64;
-    let mut enriched_items = Vec::with_capacity(payload.items.len());
-
-    for line in payload.items {
-        if line.qty <= 0 || line.unit_price_millieme < 0 || line.discount_millieme < 0 {
+    for item in &payload.items {
+        if item.qty <= 0 || item.unit_price_millieme < 0 || item.discount_millieme < 0 {
             return Err(AppError::validation("بيانات الأصناف غير صحيحة"));
         }
-
-        let item = get_active_item_by_id(&mut tx, line.item_id).await?;
-        let line_subtotal = line.qty * line.unit_price_millieme;
-        if line.discount_millieme > line_subtotal {
-            return Err(AppError::validation("خصم الصنف أكبر من قيمته"));
-        }
-
-        subtotal_millieme += line_subtotal;
-        line_discount_millieme += line.discount_millieme;
-        enriched_items.push((item, line));
     }
 
-    if payload.global_discount_millieme > subtotal_millieme - line_discount_millieme {
-        return Err(AppError::validation("الخصم الإجمالي أكبر من قيمة الفاتورة"));
+    Ok(())
+}
+
+fn sale_status_and_paid(
+    payment_method: &str,
+    requested_paid: i64,
+    total: i64,
+) -> (&'static str, i64) {
+    if payment_method == "deferred" {
+        return ("deferred", 0);
     }
 
-    let total_discount_millieme = line_discount_millieme + payload.global_discount_millieme;
-    let total_millieme = subtotal_millieme - total_discount_millieme;
-    let paid_total_millieme = payload.paid_cash_millieme + payload.paid_card_millieme;
+    if requested_paid >= total {
+        ("paid", requested_paid)
+    } else if requested_paid > 0 {
+        ("partial", requested_paid)
+    } else {
+        ("deferred", 0)
+    }
+}
 
-    let change_millieme = match payment_method.as_str() {
-        "cash" => {
-            if payload.paid_card_millieme != 0 {
-                return Err(AppError::validation("الدفع النقدي لا يقبل مبلغ فيزا"));
-            }
-            if payload.paid_cash_millieme < total_millieme {
-                return Err(AppError::validation("المبلغ المدفوع أقل من إجمالي الفاتورة"));
-            }
-            payload.paid_cash_millieme - total_millieme
-        }
-        "card" => {
-            if payload.paid_cash_millieme != 0 || payload.paid_card_millieme != total_millieme {
-                return Err(AppError::validation("مبلغ الفيزا يجب أن يساوي إجمالي الفاتورة"));
-            }
-            0
-        }
-        "deferred" => {
-            if paid_total_millieme > total_millieme {
-                return Err(AppError::validation("المبلغ المدفوع أكبر من إجمالي الفاتورة"));
-            }
-            0
-        }
-        "split" => {
-            if paid_total_millieme != total_millieme {
-                return Err(AppError::validation("يجب أن يساوي الدفع المختلط إجمالي الفاتورة"));
-            }
-            0
-        }
-        _ => 0,
-    };
+async fn create_sale_invoice_impl(
+    pool: &DbPool,
+    payload: CreateSaleInvoicePayload,
+) -> Result<Invoice, AppError> {
+    create_sale_invoice_impl_inner(pool, payload, None).await
+}
 
+async fn create_sale_invoice_impl_inner(
+    pool: &DbPool,
+    payload: CreateSaleInvoicePayload,
+    #[cfg_attr(not(test), allow(unused_variables))] fail_point: Option<SaleFailPoint>,
+) -> Result<Invoice, AppError> {
+    create_sale_invoice_impl_tx(pool, payload, fail_point).await
+}
+
+async fn create_sale_invoice_impl_tx(
+    pool: &DbPool,
+    payload: CreateSaleInvoicePayload,
+    #[cfg_attr(not(test), allow(unused_variables))] fail_point: Option<SaleFailPoint>,
+) -> Result<Invoice, AppError> {
+    validate_payload(&payload)?;
+
+    let mut tx = pool.begin().await?;
+
+    ensure_open_session(&mut tx, payload.session_id).await?;
+
+    let mut validated_items = Vec::with_capacity(payload.items.len());
+    for item in &payload.items {
+        let active_item = get_active_item(&mut tx, item.item_id).await?;
+        let _ = active_item.current_stock;
+        validated_items.push(active_item);
+    }
+
+    let (invoice_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM invoices")
+        .fetch_one(&mut *tx)
+        .await?;
+    let invoice_number = format!("INV-{:06}", invoice_count + 1);
+
+    let subtotal_millieme: i64 = payload.items.iter().map(compute_line_total).sum();
+    let total_millieme = (subtotal_millieme - payload.global_discount_millieme).max(0);
+    let payment_method = payload.payment_method.trim().to_owned();
+    let (status, paid_millieme) =
+        sale_status_and_paid(&payment_method, payload.paid_millieme, total_millieme);
     let notes = normalize_optional_string(payload.notes);
+
     let result = sqlx::query(
         r#"
         INSERT INTO invoices (
-          session_id,
+          invoice_number,
           customer_id,
+          session_id,
           subtotal_millieme,
-          line_discount_millieme,
-          global_discount_millieme,
-          total_discount_millieme,
+          discount_millieme,
+          tax_millieme,
           total_millieme,
+          paid_millieme,
           payment_method,
-          paid_cash_millieme,
-          paid_card_millieme,
-          paid_total_millieme,
-          change_millieme,
+          status,
           notes
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
         "#,
     )
+    .bind(&invoice_number)
+    .bind(payload.customer_id)
     .bind(payload.session_id)
-    .bind(customer.as_ref().map(|value| value.id))
     .bind(subtotal_millieme)
-    .bind(line_discount_millieme)
     .bind(payload.global_discount_millieme)
-    .bind(total_discount_millieme)
     .bind(total_millieme)
+    .bind(paid_millieme)
     .bind(&payment_method)
-    .bind(payload.paid_cash_millieme)
-    .bind(payload.paid_card_millieme)
-    .bind(paid_total_millieme)
-    .bind(change_millieme)
+    .bind(status)
     .bind(notes)
     .execute(&mut *tx)
     .await?;
 
     let invoice_id = result.last_insert_rowid();
-    let invoice_number = format!("INV-{invoice_id:06}");
 
-    sqlx::query("UPDATE invoices SET invoice_number = ? WHERE id = ?")
-        .bind(&invoice_number)
-        .bind(invoice_id)
-        .execute(&mut *tx)
-        .await?;
-
-    for (item, line) in &enriched_items {
+    for (item, active_item) in payload.items.iter().zip(validated_items.iter()) {
         sqlx::query(
             r#"
             INSERT INTO invoice_items (
@@ -256,50 +402,62 @@ async fn create_sale_invoice_impl(
             "#,
         )
         .bind(invoice_id)
-        .bind(item.id)
-        .bind(&item.barcode)
-        .bind(&item.name_ar)
-        .bind(line.qty)
-        .bind(line.unit_price_millieme)
-        .bind(line.discount_millieme)
-        .bind(compute_line_total(
-            line.qty,
-            line.unit_price_millieme,
-            line.discount_millieme,
-        ))
+        .bind(item.item_id)
+        .bind(&active_item.barcode)
+        .bind(&active_item.name_ar)
+        .bind(item.qty)
+        .bind(item.unit_price_millieme)
+        .bind(item.discount_millieme)
+        .bind(compute_line_total(item))
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    #[cfg(test)]
+    if matches!(fail_point, Some(SaleFailPoint::AfterInvoiceItems)) {
+        panic!("test failpoint after invoice_items");
+    }
+
+    for (payload_item, active_item) in payload.items.iter().zip(validated_items.iter()) {
+        sqlx::query(
+            "UPDATE items SET current_stock = current_stock - ?, updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(payload_item.qty)
+        .bind(active_item.id)
         .execute(&mut *tx)
         .await?;
 
-        sqlx::query("UPDATE items SET current_stock = current_stock - ? WHERE id = ?")
-            .bind(line.qty)
-            .bind(item.id)
+        sqlx::query(
+            r#"
+            INSERT INTO stock_movements (
+              item_id,
+              delta,
+              movement_type,
+              reference_id,
+              reference_type
+            )
+            VALUES (?, ?, 'sale', ?, 'invoice')
+            "#,
+        )
+        .bind(active_item.id)
+        .bind(-payload_item.qty)
+        .bind(invoice_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    if payload.customer_id.is_some() && matches!(status, "deferred" | "partial") {
+        let remaining_millieme = total_millieme - paid_millieme;
+        sqlx::query("UPDATE customers SET balance_millieme = balance_millieme + ? WHERE id = ?")
+            .bind(remaining_millieme)
+            .bind(payload.customer_id)
             .execute(&mut *tx)
             .await?;
     }
 
-    if payment_method == "deferred" {
-        if let Some(customer) = customer {
-            let remaining_millieme = total_millieme - paid_total_millieme;
-            sqlx::query("UPDATE customers SET balance_millieme = balance_millieme + ? WHERE id = ?")
-                .bind(remaining_millieme)
-                .bind(customer.id)
-                .execute(&mut *tx)
-                .await?;
-        }
-    }
-
-    let invoice = get_invoice_by_id(&mut tx, invoice_id).await?;
     tx.commit().await?;
 
-    Ok(CreateSaleInvoiceResponse {
-        invoice_id: invoice.id,
-        invoice_number: invoice.invoice_number.unwrap_or(invoice_number),
-        total_millieme: invoice.total_millieme,
-        paid_cash_millieme: invoice.paid_cash_millieme,
-        paid_card_millieme: invoice.paid_card_millieme,
-        paid_total_millieme: invoice.paid_total_millieme,
-        change_millieme: invoice.change_millieme,
-    })
+    get_invoice_by_id(pool, invoice_id).await
 }
 
 #[tauri::command]
@@ -312,10 +470,31 @@ pub async fn search_items(
 }
 
 #[tauri::command]
+pub async fn list_invoices(
+    pool: State<'_, DbPool>,
+    filters: InvoiceFilters,
+) -> Result<Vec<InvoiceSummary>, AppError> {
+    list_invoices_impl(&pool, filters).await
+}
+
+#[tauri::command]
+pub async fn get_invoice_detail(
+    pool: State<'_, DbPool>,
+    invoice_id: i64,
+) -> Result<InvoiceDetail, AppError> {
+    get_invoice_detail_impl(&pool, invoice_id).await
+}
+
+#[tauri::command]
+pub async fn get_invoice_stats(pool: State<'_, DbPool>) -> Result<InvoiceStats, AppError> {
+    get_invoice_stats_impl(&pool).await
+}
+
+#[tauri::command]
 pub async fn create_sale_invoice(
     pool: State<'_, DbPool>,
     payload: CreateSaleInvoicePayload,
-) -> Result<CreateSaleInvoiceResponse, AppError> {
+) -> Result<Invoice, AppError> {
     create_sale_invoice_impl(&pool, payload).await
 }
 
@@ -341,6 +520,7 @@ mod tests {
         let options = SqliteConnectOptions::new()
             .filename(&db_path)
             .create_if_missing(true)
+            .foreign_keys(true)
             .disable_statement_logging();
 
         let pool = SqlitePoolOptions::new()
@@ -357,11 +537,17 @@ mod tests {
         pool
     }
 
-    #[tokio::test]
-    async fn create_sale_invoice_updates_stock_and_customer_balance() {
-        let pool = test_pool().await;
+    async fn insert_session(pool: &DbPool, status: &str) -> i64 {
+        sqlx::query("INSERT INTO sessions (cashier_id, opening_cash_millieme, status) VALUES (1, 100000, ?)")
+            .bind(status)
+            .execute(pool)
+            .await
+            .expect("session should be inserted")
+            .last_insert_rowid()
+    }
 
-        let item_result = sqlx::query(
+    async fn insert_item(pool: &DbPool, barcode: &str, stock: i64, price: i64) -> i64 {
+        sqlx::query(
             r#"
             INSERT INTO items (
               barcode,
@@ -372,80 +558,245 @@ mod tests {
               current_stock,
               min_stock
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, 5000, ?, 'قطعة', ?, 1)
             "#,
         )
-        .bind("111")
-        .bind("منتج اختبار")
-        .bind(5000_i64)
-        .bind(10000_i64)
-        .bind("قطعة")
-        .bind(8_i64)
-        .bind(1_i64)
-        .execute(&pool)
+        .bind(barcode)
+        .bind(format!("صنف {barcode}"))
+        .bind(price)
+        .bind(stock)
+        .execute(pool)
         .await
-        .expect("item should be inserted");
+        .expect("item should be inserted")
+        .last_insert_rowid()
+    }
 
-        let customer_result = sqlx::query(
-            r#"
-            INSERT INTO customers (name, balance_millieme, credit_limit_millieme)
-            VALUES (?, ?, ?)
-            "#,
+    async fn insert_customer(pool: &DbPool, balance: i64) -> i64 {
+        sqlx::query(
+            "INSERT INTO customers (name, balance_millieme, credit_limit_millieme) VALUES ('عميل اختبار', ?, 50000)",
         )
-        .bind("عميل اختبار")
-        .bind(-5000_i64)
-        .bind(50000_i64)
-        .execute(&pool)
+        .bind(balance)
+        .execute(pool)
         .await
-        .expect("customer should be inserted");
+        .expect("customer should be inserted")
+        .last_insert_rowid()
+    }
 
-        let session_result = sqlx::query(
-            "INSERT INTO sessions (cashier_id, opening_cash_millieme, status) VALUES (?, ?, 'open')",
-        )
-        .bind(1_i64)
-        .bind(100000_i64)
-        .execute(&pool)
-        .await
-        .expect("session should be inserted");
+    fn payload(session_id: i64, items: Vec<InvoiceItemPayload>) -> CreateSaleInvoicePayload {
+        CreateSaleInvoicePayload {
+            session_id,
+            customer_id: None,
+            items,
+            global_discount_millieme: 0,
+            payment_method: "cash".to_owned(),
+            paid_millieme: 0,
+            notes: None,
+        }
+    }
 
-        let response = create_sale_invoice_impl(
-            &pool,
-            CreateSaleInvoicePayload {
-                session_id: session_result.last_insert_rowid(),
-                customer_id: Some(customer_result.last_insert_rowid()),
-                payment_method: "deferred".to_owned(),
-                global_discount_millieme: 1000,
-                paid_cash_millieme: 4000,
-                paid_card_millieme: 0,
-                notes: Some("  ملاحظة  ".to_owned()),
-                items: vec![crate::models::sale::CreateSaleInvoiceLinePayload {
-                    item_id: item_result.last_insert_rowid(),
+    #[tokio::test]
+    async fn create_sale_invoice_happy_path_writes_invoice_items_stock_and_movements() {
+        let pool = test_pool().await;
+        let session_id = insert_session(&pool, "open").await;
+        let item_1 = insert_item(&pool, "111", 10, 10000).await;
+        let item_2 = insert_item(&pool, "222", 20, 15000).await;
+
+        let mut request = payload(
+            session_id,
+            vec![
+                InvoiceItemPayload {
+                    item_id: item_1,
                     qty: 2,
                     unit_price_millieme: 10000,
-                    discount_millieme: 2000,
-                }],
-            },
-        )
-        .await
-        .expect("sale invoice should be created");
+                    discount_millieme: 1000,
+                },
+                InvoiceItemPayload {
+                    item_id: item_2,
+                    qty: 3,
+                    unit_price_millieme: 15000,
+                    discount_millieme: 0,
+                },
+            ],
+        );
+        request.paid_millieme = 64000;
 
-        assert_eq!(response.invoice_number, "INV-000001");
-        assert_eq!(response.total_millieme, 17000);
-        assert_eq!(response.paid_total_millieme, 4000);
+        let invoice = create_sale_invoice_impl(&pool, request)
+            .await
+            .expect("invoice should be created");
 
-        let stock: (i64,) = sqlx::query_as("SELECT current_stock FROM items WHERE id = ?")
-            .bind(item_result.last_insert_rowid())
+        assert_eq!(invoice.invoice_number, "INV-000001");
+        assert_eq!(invoice.items.len(), 2);
+        assert_eq!(invoice.subtotal_millieme, 64000);
+        assert_eq!(invoice.total_millieme, 64000);
+        assert_eq!(invoice.status, "paid");
+
+        let (item_count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM invoice_items WHERE invoice_id = ?")
+                .bind(invoice.id)
+                .fetch_one(&pool)
+                .await
+                .expect("invoice item count should be readable");
+        assert_eq!(item_count, 2);
+
+        let (stock_1,): (i64,) = sqlx::query_as("SELECT current_stock FROM items WHERE id = ?")
+            .bind(item_1)
             .fetch_one(&pool)
             .await
             .expect("stock should be readable");
-        assert_eq!(stock.0, 6);
+        let (stock_2,): (i64,) = sqlx::query_as("SELECT current_stock FROM items WHERE id = ?")
+            .bind(item_2)
+            .fetch_one(&pool)
+            .await
+            .expect("stock should be readable");
+        assert_eq!(stock_1, 8);
+        assert_eq!(stock_2, 17);
 
-        let balance: (i64,) =
+        let movements: Vec<(i64,)> = sqlx::query_as(
+            "SELECT delta FROM stock_movements WHERE reference_id = ? ORDER BY item_id ASC",
+        )
+        .bind(invoice.id)
+        .fetch_all(&pool)
+        .await
+        .expect("stock movements should be readable");
+        assert_eq!(movements, vec![(-2,), (-3,)]);
+    }
+
+    #[tokio::test]
+    async fn create_sale_invoice_rolls_back_invoice_items_and_stock_after_panic() {
+        let pool = test_pool().await;
+        let session_id = insert_session(&pool, "open").await;
+        let item_id = insert_item(&pool, "333", 7, 12000).await;
+
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 2,
+                unit_price_millieme: 12000,
+                discount_millieme: 0,
+            }],
+        );
+        request.paid_millieme = 24000;
+
+        let panic_pool = pool.clone();
+        let result = tokio::spawn(async move {
+            create_sale_invoice_impl_inner(
+                &panic_pool,
+                request,
+                Some(SaleFailPoint::AfterInvoiceItems),
+            )
+            .await
+        })
+        .await;
+
+        assert!(result.is_err(), "test failpoint should panic");
+
+        let (invoice_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM invoices")
+            .fetch_one(&pool)
+            .await
+            .expect("invoice count should be readable");
+        assert_eq!(invoice_count, 0);
+
+        let (item_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM invoice_items")
+            .fetch_one(&pool)
+            .await
+            .expect("invoice item count should be readable");
+        assert_eq!(item_count, 0);
+
+        let (stock,): (i64,) = sqlx::query_as("SELECT current_stock FROM items WHERE id = ?")
+            .bind(item_id)
+            .fetch_one(&pool)
+            .await
+            .expect("stock should be readable");
+        assert_eq!(stock, 7);
+    }
+
+    #[tokio::test]
+    async fn create_sale_invoice_deferred_payment_updates_customer_balance() {
+        let pool = test_pool().await;
+        let session_id = insert_session(&pool, "open").await;
+        let item_id = insert_item(&pool, "444", 5, 10000).await;
+        let customer_id = insert_customer(&pool, 3000).await;
+
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 2,
+                unit_price_millieme: 10000,
+                discount_millieme: 0,
+            }],
+        );
+        request.customer_id = Some(customer_id);
+        request.payment_method = "deferred".to_owned();
+        request.paid_millieme = 20000;
+
+        let invoice = create_sale_invoice_impl(&pool, request)
+            .await
+            .expect("deferred invoice should be created");
+
+        assert_eq!(invoice.status, "deferred");
+        assert_eq!(invoice.paid_millieme, 0);
+
+        let (balance,): (i64,) =
             sqlx::query_as("SELECT balance_millieme FROM customers WHERE id = ?")
-                .bind(customer_result.last_insert_rowid())
+                .bind(customer_id)
                 .fetch_one(&pool)
                 .await
                 .expect("customer balance should be readable");
-        assert_eq!(balance.0, 8000);
+        assert_eq!(balance, 23000);
+    }
+
+    #[tokio::test]
+    async fn create_sale_invoice_rejects_closed_or_missing_session_without_writes() {
+        let pool = test_pool().await;
+        let session_id = insert_session(&pool, "closed").await;
+        let item_id = insert_item(&pool, "555", 5, 10000).await;
+
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 1,
+                unit_price_millieme: 10000,
+                discount_millieme: 0,
+            }],
+        );
+        request.paid_millieme = 10000;
+
+        let error = create_sale_invoice_impl(&pool, request)
+            .await
+            .expect_err("closed session should fail");
+
+        assert_eq!(error.code, "SESSION_NOT_OPEN");
+        assert_eq!(error.message_ar, "الوردية غير مفتوحة");
+
+        let (invoice_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM invoices")
+            .fetch_one(&pool)
+            .await
+            .expect("invoice count should be readable");
+        assert_eq!(invoice_count, 0);
+
+        let missing_session_error = create_sale_invoice_impl(
+            &pool,
+            CreateSaleInvoicePayload {
+                session_id: 999_999,
+                customer_id: None,
+                items: vec![InvoiceItemPayload {
+                    item_id,
+                    qty: 1,
+                    unit_price_millieme: 10000,
+                    discount_millieme: 0,
+                }],
+                global_discount_millieme: 0,
+                payment_method: "cash".to_owned(),
+                paid_millieme: 10000,
+                notes: None,
+            },
+        )
+        .await
+        .expect_err("missing session should fail");
+
+        assert_eq!(missing_session_error.code, "SESSION_NOT_OPEN");
     }
 }
