@@ -6,6 +6,7 @@ import {
   Boxes,
   CircleAlert,
   Edit3,
+  FolderTree,
   PackageSearch,
   Search,
   Trash2,
@@ -18,8 +19,10 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ItemFormDialog } from "@/modules/items/ItemFormDialog";
 import { DeleteConfirmDialog } from "@/modules/items/DeleteConfirmDialog";
+import { CategoryManagerDialog } from "@/modules/items/categories";
 import type { Category, Item } from "@/modules/items/types";
 import { getItemStockTone } from "@/modules/items/utils";
+import { useBarcodeScanner } from "@/shared/hooks/useBarcodeScanner";
 import { formatEGP } from "@/shared/utils/money";
 
 export default function ItemsPage() {
@@ -28,9 +31,24 @@ export default function ItemsPage() {
   const [editingItem, setEditingItem] = useState<Item | null>(null);
   const [deletingItem, setDeletingItem] = useState<Item | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isCategoryManagerOpen, setIsCategoryManagerOpen] = useState(false);
+  const isScannerEnabled =
+    !isCreateOpen && !editingItem && !deletingItem && !isCategoryManagerOpen;
 
   const deferredSearch = useDeferredValue(search);
   const selectedCategoryId = categoryId ? Number(categoryId) : null;
+
+  useBarcodeScanner((barcode) => {
+    setSearch(barcode);
+  }, isScannerEnabled);
+
+  const simulateScannerInput = () => {
+    for (const key of "1234567890") {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    }
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  };
 
   const categoriesQuery = useQuery({
     queryKey: ["categories"],
@@ -128,9 +146,21 @@ export default function ItemsPage() {
               </select>
             </div>
 
-            <Button onClick={() => setIsCreateOpen(true)}>
-              <BadgePlus />
-              إضافة صنف جديد
+            <div className="flex flex-col gap-2 sm:flex-row-reverse">
+              <Button variant="outline" onClick={() => setIsCategoryManagerOpen(true)}>
+                <FolderTree />
+                إدارة التصنيفات
+              </Button>
+              <Button onClick={() => setIsCreateOpen(true)}>
+                <BadgePlus />
+                إضافة صنف جديد
+              </Button>
+            </div>
+          </div>
+
+          <div className="flex justify-start">
+            <Button variant="outline" onClick={simulateScannerInput}>
+              اختبار قارئ الباركود
             </Button>
           </div>
 
@@ -255,6 +285,11 @@ export default function ItemsPage() {
             setDeletingItem(null);
           }
         }}
+      />
+
+      <CategoryManagerDialog
+        open={isCategoryManagerOpen}
+        onOpenChange={setIsCategoryManagerOpen}
       />
     </div>
   );

@@ -7,11 +7,13 @@ use serde::Serialize;
 use tauri::{Manager, State};
 
 use commands::{
+    customers::{create_customer, delete_customer, get_customer, list_customers, update_customer},
     force_error, ping,
     items::{
-        create_category, create_item, delete_item, get_item_by_barcode, list_categories,
-        list_items, update_item,
+        create_category, create_item, delete_category, delete_item, get_item_by_barcode,
+        list_categories, list_items, update_item,
     },
+    suppliers::{create_supplier, delete_supplier, get_supplier, list_suppliers, update_supplier},
 };
 use db::DbPool;
 use errors::AppError;
@@ -58,7 +60,18 @@ pub fn run() {
             update_item,
             delete_item,
             list_categories,
-            create_category
+            create_category,
+            delete_category,
+            list_customers,
+            get_customer,
+            create_customer,
+            update_customer,
+            delete_customer,
+            list_suppliers,
+            get_supplier,
+            create_supplier,
+            update_supplier,
+            delete_supplier
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
