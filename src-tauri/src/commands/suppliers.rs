@@ -220,14 +220,16 @@ mod tests {
 
     use super::*;
 
-    async fn test_pool() -> DbPool {
+    async fn test_pool() -> Result<DbPool, AppError> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+
         let db_path = std::env::temp_dir().join(format!(
             "safqah-suppliers-test-{}-{}.db",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .expect("system time should be valid")
-                .as_nanos()
+            nanos
         ));
 
         let options = SqliteConnectOptions::new()
@@ -239,19 +241,25 @@ mod tests {
             .max_connections(1)
             .connect_with(options)
             .await
-            .expect("test db should connect");
+            .map_err(AppError::from)?;
 
         sqlx::migrate!("./src/db/migrations")
             .run(&pool)
             .await
-            .expect("migrations should run");
+            .map_err(|e| {
+                AppError::new(
+                    "TEST_MIGRATE_FAILED",
+                    "فشل تشغيل migrations للاختبار",
+                    &format!("Test migrations failed: {e}"),
+                )
+            })?;
 
-        pool
+        Ok(pool)
     }
 
     #[tokio::test]
-    async fn supplier_crud_flow_works() {
-        let pool = test_pool().await;
+    async fn supplier_crud_flow_works() -> Result<(), AppError> {
+        let pool = test_pool().await?;
 
         let created = create_supplier_impl(
             &pool,
@@ -264,18 +272,13 @@ mod tests {
                 notes: Some("ملاحظات".to_owned()),
             },
         )
-        .await
-        .expect("supplier should be created");
+        .await?;
         assert_eq!(created.name, "مورد اختبار");
 
-        let listed = list_suppliers_impl(&pool, Some("اختبار".to_owned()))
-            .await
-            .expect("suppliers should list");
+        let listed = list_suppliers_impl(&pool, Some("اختبار".to_owned())).await?;
         assert_eq!(listed.len(), 1);
 
-        let fetched = get_supplier_by_id(&pool, created.id)
-            .await
-            .expect("supplier should be fetched");
+        let fetched = get_supplier_by_id(&pool, created.id).await?;
         assert_eq!(fetched.tax_number.as_deref(), Some("12345"));
 
         let updated = update_supplier_impl(
@@ -290,21 +293,18 @@ mod tests {
                 notes: Some(String::new()),
             },
         )
-        .await
-        .expect("supplier should be updated");
+        .await?;
         assert_eq!(updated.name, "مورد محدث");
         assert_eq!(updated.balance_millieme, 45000);
         assert!(updated.tax_number.is_none());
         assert!(updated.notes.is_none());
 
-        let deleted = delete_supplier_impl(&pool, created.id)
-            .await
-            .expect("delete should succeed");
+        let deleted = delete_supplier_impl(&pool, created.id).await?;
         assert!(deleted);
 
-        let listed_after_delete = list_suppliers_impl(&pool, Some("محدث".to_owned()))
-            .await
-            .expect("suppliers should list after delete");
+        let listed_after_delete = list_suppliers_impl(&pool, Some("محدث".to_owned())).await?;
         assert!(listed_after_delete.is_empty());
+
+        Ok(())
     }
 }

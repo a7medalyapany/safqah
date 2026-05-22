@@ -44,12 +44,12 @@ All data persists after app restart.
 | ID    | Task                                                    | Status | Notes                        |
 | ----- | ------------------------------------------------------- | ------ | ---------------------------- |
 | T-020 | Sessions (shift) system — schema + commands + Zustand   | `[x]`  | depends: T-007               |
-| T-021 | Cart Zustand slice + money math                         | `[ ]`  | depends: T-006               |
-| T-022 | POS screen UI                                           | `[ ]`  | depends: T-020, T-021, T-013 |
-| T-023 | `create_sale_invoice` Rust command (atomic transaction) | `[ ]`  | depends: T-010, T-014        |
-| T-024 | Invoice list + detail view                              | `[ ]`  | depends: T-023               |
-| T-025 | Thermal receipt print (ESC/POS + print queue)           | `[ ]`  | depends: T-023               |
-| T-026 | Return (مرتجع) flow                                     | `[ ]`  | depends: T-023               |
+| T-021 | Cart Zustand slice + money math                         | `[x]`  | depends: T-006               |
+| T-022 | POS screen UI                                           | `[x]`  | depends: T-020, T-021, T-013 |
+| T-023 | `create_sale_invoice` Rust command (atomic transaction) | `[x]`  | depends: T-010, T-014        |
+| T-024 | Invoice list + detail view                              | `[x]`  | depends: T-023               |
+| T-025 | Thermal receipt print (ESC/POS + print queue)           | `[x]`  | depends: T-023               |
+| T-026 | Return (مرتجع) flow                                     | `[x]`  | depends: T-023               |
 
 **M2 exit criteria:** Open shift → scan item → add to cart → apply discount →
 select customer → pay cash → receipt prints → invoice in list → stock decremented.
