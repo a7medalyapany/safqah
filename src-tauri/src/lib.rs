@@ -1,11 +1,18 @@
 mod commands;
 mod db;
 mod errors;
+mod models;
 
 use serde::Serialize;
 use tauri::{Manager, State};
 
-use commands::{force_error, ping};
+use commands::{
+    force_error, ping,
+    items::{
+        create_category, create_item, delete_item, get_item_by_barcode, list_categories,
+        list_items, update_item,
+    },
+};
 use db::DbPool;
 use errors::AppError;
 
@@ -44,7 +51,14 @@ pub fn run() {
             greet,
             get_db_info,
             ping,
-            force_error
+            force_error,
+            list_items,
+            get_item_by_barcode,
+            create_item,
+            update_item,
+            delete_item,
+            list_categories,
+            create_category
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
