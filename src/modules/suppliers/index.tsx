@@ -1,3 +1,5 @@
+import { PartyPage } from "@/modules/parties/PartyPage";
+
 export default function SuppliersPage() {
-  return <h1 className="mt-20 text-center text-3xl">الموردين</h1>;
+  return <PartyPage kind="supplier" />;
 }
