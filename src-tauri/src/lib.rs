@@ -13,6 +13,9 @@ use commands::{
         create_category, create_item, delete_category, delete_item, get_item_by_barcode,
         list_categories, list_items, update_item,
     },
+    sessions::{
+        close_session, get_active_session, get_session_sales_total_millieme, open_session,
+    },
     suppliers::{create_supplier, delete_supplier, get_supplier, list_suppliers, update_supplier},
 };
 use db::DbPool;
@@ -67,6 +70,10 @@ pub fn run() {
             create_customer,
             update_customer,
             delete_customer,
+            get_active_session,
+            open_session,
+            close_session,
+            get_session_sales_total_millieme,
             list_suppliers,
             get_supplier,
             create_supplier,
