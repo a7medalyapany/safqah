@@ -8,6 +8,7 @@ pub mod purchases;
 pub mod print;
 pub mod reports;
 pub mod settings;
+pub mod sessions;
 pub mod suppliers;
 pub mod sales;
 
