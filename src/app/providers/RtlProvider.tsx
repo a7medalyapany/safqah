@@ -6,12 +6,14 @@ type RtlProviderProps = {
 
 export function RtlProvider({ children }: RtlProviderProps) {
   useEffect(() => {
+    document.documentElement.setAttribute("dir", "rtl");
+    document.documentElement.setAttribute("lang", "ar");
     document.body.setAttribute("dir", "rtl");
-    document.body.setAttribute("lang", "ar");
 
     return () => {
+      document.documentElement.removeAttribute("dir");
+      document.documentElement.removeAttribute("lang");
       document.body.removeAttribute("dir");
-      document.body.removeAttribute("lang");
     };
   }, []);
 
