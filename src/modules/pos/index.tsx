@@ -137,6 +137,19 @@ export default function PosPage() {
     searchInputRef.current?.select();
   };
 
+  const handlePrintInvoice = async () => {
+    if (!successInvoice) {
+      return;
+    }
+
+    try {
+      await invoke("print_receipt", { invoiceId: successInvoice.id });
+      toast.success("جاري الطباعة...");
+    } catch (error) {
+      toast.error(parseAppError(error).message_ar);
+    }
+  };
+
   useEffect(() => {
     focusSearchInput();
   }, []);
@@ -830,7 +843,7 @@ export default function PosPage() {
             focusSearchInput();
           }
         }}
-        onPrint={() => toast("ميزة طباعة الفاتورة ستتوفر قريبًا")}
+        onPrint={() => void handlePrintInvoice()}
         onNewInvoice={handleNewInvoice}
       />
     </>
