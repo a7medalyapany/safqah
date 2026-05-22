@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Outlet } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -25,6 +26,20 @@ export function AppLayout() {
       toast.error(parseAppError(error).message_ar);
     });
   }, [fetchActiveSession]);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    void listen("print_failed", () => {
+      toast.error("فشلت الطباعة — تأكد من اتصال الطابعة");
+    }).then((unsubscribe) => {
+      unlisten = unsubscribe;
+    });
+
+    return () => {
+      unlisten?.();
+    };
+  }, []);
 
   const cashierName = activeSession ? `الكاشير ${activeSession.cashier_id}` : null;
 

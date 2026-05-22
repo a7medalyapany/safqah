@@ -2,6 +2,7 @@ mod commands;
 mod db;
 mod errors;
 mod models;
+mod services;
 
 use serde::Serialize;
 use tauri::{Manager, State};
@@ -13,6 +14,7 @@ use commands::{
         create_category, create_item, delete_category, delete_item, get_item_by_barcode,
         list_categories, list_items, update_item,
     },
+    print::{list_printers, print_receipt},
     sales::{
         create_sale_invoice, get_invoice_detail, get_invoice_stats, list_invoices, search_items,
     },
@@ -23,6 +25,7 @@ use commands::{
 };
 use db::DbPool;
 use errors::AppError;
+use services::print_queue::{new_print_queue, start_print_queue_worker};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -52,7 +55,10 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             let pool = tauri::async_runtime::block_on(db::get_pool());
+            let print_queue = new_print_queue();
             app.manage(pool);
+            app.manage(print_queue.clone());
+            start_print_queue_worker(print_queue, app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -82,6 +88,8 @@ pub fn run() {
             list_invoices,
             get_invoice_detail,
             get_invoice_stats,
+            print_receipt,
+            list_printers,
             list_suppliers,
             get_supplier,
             create_supplier,

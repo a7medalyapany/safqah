@@ -384,6 +384,19 @@ function InvoiceDetailSheet({
   invoice: InvoiceDetail | null;
   isLoading: boolean;
 }) {
+  const handlePrint = async () => {
+    if (!invoice) {
+      return;
+    }
+
+    try {
+      await invoke("print_receipt", { invoiceId: invoice.id });
+      toast.success("جاري الطباعة...");
+    } catch {
+      toast.error("تعذر إرسال أمر الطباعة");
+    }
+  };
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent dir="rtl">
@@ -454,7 +467,7 @@ function InvoiceDetailSheet({
             <div className="grid gap-2 sm:grid-cols-2">
               <Button
                 variant="outline"
-                onClick={() => toast.info("سيتم ربط طباعة الفاتورة في T-025")}
+                onClick={() => void handlePrint()}
               >
                 <Printer />
                 طباعة الفاتورة
