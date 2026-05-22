@@ -27,8 +27,7 @@ type CreateSaleInvoicePayload = {
   customerId: number | null;
   paymentMethod: PaymentMethod;
   globalDiscountMillieme: number;
-  paidCashMillieme: number;
-  paidCardMillieme: number;
+  paidMillieme: number;
   notes: string | null;
   items: Array<{
     itemId: number;
@@ -81,8 +80,7 @@ function buildSalePayload(params: {
     customerId: params.customerId,
     paymentMethod: params.paymentMethod,
     globalDiscountMillieme: params.globalDiscountMillieme,
-    paidCashMillieme: params.paidCashMillieme,
-    paidCardMillieme: params.paidCardMillieme,
+    paidMillieme: params.paidCashMillieme + params.paidCardMillieme,
     notes: params.notes.trim() || null,
     items: params.items.map((item) => ({
       itemId: item.itemId,
