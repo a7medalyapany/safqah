@@ -1,8 +1,10 @@
-import { lazy, Suspense, type ReactNode } from "react";
-import { createBrowserRouter } from "react-router-dom";
+import { lazy, Suspense, type ReactNode, useEffect, useRef } from "react";
+import { createBrowserRouter, Navigate } from "react-router-dom";
+import { toast } from "sonner";
 
 import { AppLayout } from "@/app/layout";
 import PosPage from "@/modules/pos";
+import { type SessionState, useSessionStore } from "@/store/sessionSlice";
 
 const DashboardPage = lazy(() => import("@/modules/dashboard"));
 const ItemsPage = lazy(() => import("@/modules/items"));
@@ -26,6 +28,29 @@ function withSuspense(node: ReactNode) {
   return <Suspense fallback={<RouteFallback />}>{node}</Suspense>;
 }
 
+function ProtectedPosRoute() {
+  const activeSession = useSessionStore((state: SessionState) => state.activeSession);
+  const isLoading = useSessionStore((state: SessionState) => state.isLoading);
+  const hasShownToastRef = useRef(false);
+
+  useEffect(() => {
+    if (!isLoading && !activeSession && !hasShownToastRef.current) {
+      hasShownToastRef.current = true;
+      toast.error("افتح وردية أولاً للبدء في البيع");
+    }
+  }, [activeSession, isLoading]);
+
+  if (isLoading) {
+    return <RouteFallback />;
+  }
+
+  if (!activeSession) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <PosPage />;
+}
+
 export const router = createBrowserRouter([
   {
     path: "/",
@@ -37,7 +62,7 @@ export const router = createBrowserRouter([
       },
       {
         path: "pos",
-        element: <PosPage />,
+        element: <ProtectedPosRoute />,
       },
       {
         path: "items",

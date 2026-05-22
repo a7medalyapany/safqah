@@ -1,0 +1,62 @@
+import { invoke } from "@tauri-apps/api/core";
+import { create } from "zustand";
+
+export type Session = {
+  id: number;
+  cashier_id: number;
+  opened_at: string;
+  closed_at: string | null;
+  opening_cash_millieme: number;
+  closing_cash_millieme: number;
+  status: "open" | "closed";
+  notes: string | null;
+};
+
+export type SessionState = {
+  activeSession: Session | null;
+  isLoading: boolean;
+  fetchActiveSession: () => Promise<void>;
+  openSession: (openingCash: number) => Promise<void>;
+  closeSession: (closingCash: number, notes?: string) => Promise<void>;
+};
+
+export const useSessionStore = create<SessionState>((set, get) => ({
+  activeSession: null,
+  isLoading: true,
+  async fetchActiveSession() {
+    set({ isLoading: true });
+
+    try {
+      const activeSession = await invoke<Session | null>("get_active_session");
+      set({ activeSession, isLoading: false });
+    } catch (error) {
+      set({ isLoading: false });
+      throw error;
+    }
+  },
+  async openSession(openingCash) {
+    const activeSession = await invoke<Session>("open_session", {
+      openingCashMillieme: openingCash,
+    });
+
+    set({ activeSession, isLoading: false });
+  },
+  async closeSession(closingCash, notes) {
+    const sessionId = get().activeSession?.id;
+
+    if (!sessionId) {
+      return;
+    }
+
+    const activeSession = await invoke<Session>("close_session", {
+      sessionId,
+      closingCashMillieme: closingCash,
+      notes: notes ?? null,
+    });
+
+    set({
+      activeSession: activeSession.status === "open" ? activeSession : null,
+      isLoading: false,
+    });
+  },
+}));
