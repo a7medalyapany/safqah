@@ -23,16 +23,50 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 
+type AppErrorShape = {
+  code: string;
+  message_ar: string;
+  message_en: string;
+};
+
 function App() {
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    invoke<{ journal_mode: string }>("get_db_info")
+    invoke<{ ok: boolean; message: string }>("ping")
       .then((result) => {
-        console.log(result);
+        console.log("ping()", result);
       })
       .catch((error) => {
-        console.error(error);
+        console.error("ping() failed", error);
+      });
+
+    invoke("force_error")
+      .then((result) => {
+        console.log("force_error() unexpectedly succeeded", result);
+      })
+      .catch((error) => {
+        const appError =
+          typeof error === "string"
+            ? (() => {
+                try {
+                  return JSON.parse(error) as AppErrorShape;
+                } catch {
+                  return {
+                    code: "UNKNOWN",
+                    message_ar: error,
+                    message_en: error,
+                  } satisfies AppErrorShape;
+                }
+              })()
+            : (error as AppErrorShape);
+
+        console.log("force_error() AppError", appError);
+        console.log({
+          code: appError.code,
+          message_ar: appError.message_ar,
+          message_en: appError.message_en,
+        });
       });
   }, []);
 

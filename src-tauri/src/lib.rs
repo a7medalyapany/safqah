@@ -1,9 +1,13 @@
+mod commands;
 mod db;
+mod errors;
 
 use serde::Serialize;
 use tauri::{Manager, State};
 
+use commands::{force_error, ping};
 use db::DbPool;
+use errors::AppError;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -17,11 +21,10 @@ struct DbInfo {
 }
 
 #[tauri::command]
-async fn get_db_info(pool: State<'_, DbPool>) -> Result<DbInfo, String> {
+async fn get_db_info(pool: State<'_, DbPool>) -> Result<DbInfo, AppError> {
     let row: (String,) = sqlx::query_as("PRAGMA journal_mode;")
         .fetch_one(&*pool)
-        .await
-        .map_err(|err| err.to_string())?;
+        .await?;
 
     Ok(DbInfo {
         journal_mode: row.0,
@@ -37,7 +40,12 @@ pub fn run() {
             app.manage(pool);
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet, get_db_info])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            get_db_info,
+            ping,
+            force_error
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
