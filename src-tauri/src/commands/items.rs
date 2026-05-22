@@ -327,6 +327,29 @@ async fn create_category_impl(pool: &DbPool, name_ar: String) -> Result<Category
     Ok(category)
 }
 
+async fn delete_category_impl(pool: &DbPool, id: i64) -> Result<bool, AppError> {
+    let (count,): (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM items WHERE category_id = ? AND is_active = 1")
+            .bind(id)
+            .fetch_one(pool)
+            .await?;
+
+    if count > 0 {
+        return Err(AppError::new(
+            "CATEGORY_IN_USE",
+            &format!("لا يمكن حذف التصنيف لأنه مستخدم في {count} أصناف"),
+            &format!("Category is used in {count} items"),
+        ));
+    }
+
+    let result = sqlx::query("DELETE FROM categories WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+    Ok(result.rows_affected() > 0)
+}
+
 #[tauri::command]
 pub async fn list_items(
     pool: State<'_, DbPool>,
@@ -379,8 +402,15 @@ pub async fn create_category(
     create_category_impl(&pool, name_ar).await
 }
 
+#[tauri::command]
+pub async fn delete_category(pool: State<'_, DbPool>, id: i64) -> Result<bool, AppError> {
+    delete_category_impl(&pool, id).await
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
     use sqlx::{
         sqlite::{SqliteConnectOptions, SqlitePoolOptions},
         ConnectOptions,
@@ -388,14 +418,18 @@ mod tests {
 
     use super::*;
 
+    static TEST_DB_COUNTER: AtomicU64 = AtomicU64::new(0);
+
     async fn test_pool() -> DbPool {
+        let unique_suffix = TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed);
         let db_path = std::env::temp_dir().join(format!(
-            "safqah-items-test-{}-{}.db",
+            "safqah-items-test-{}-{}-{}.db",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .expect("system time should be valid")
-                .as_nanos()
+                .as_nanos(),
+            unique_suffix
         ));
 
         let options = SqliteConnectOptions::new()
@@ -497,5 +531,55 @@ mod tests {
             .await
             .expect("items should list after delete");
         assert!(listed_after_delete.is_empty());
+    }
+
+    #[tokio::test]
+    async fn delete_category_fails_when_in_use_and_succeeds_when_unused() {
+        let pool = test_pool().await;
+
+        let used_category = create_category_impl(&pool, "فئة مستخدمة".to_owned())
+            .await
+            .expect("used category should be created");
+        let unused_category = create_category_impl(&pool, "فئة غير مستخدمة".to_owned())
+            .await
+            .expect("unused category should be created");
+
+        create_item_impl(
+            &pool,
+            CreateItemPayload {
+                barcode: Some("TEST-CATEGORY-USE".to_owned()),
+                name_ar: "صنف مربوط".to_owned(),
+                name_en: None,
+                category_id: Some(used_category.id),
+                buy_price_millieme: 10000,
+                sell_price_millieme: 15000,
+                color: None,
+                size: None,
+                unit: Some("قطعة".to_owned()),
+                min_stock: Some(0),
+                current_stock: Some(1),
+                supplier_id: None,
+                image_path: None,
+            },
+        )
+        .await
+        .expect("item should be created");
+
+        let error = delete_category_impl(&pool, used_category.id)
+            .await
+            .expect_err("used category should not be deleted");
+        assert_eq!(error.code, "CATEGORY_IN_USE");
+        assert_eq!(error.message_ar, "لا يمكن حذف التصنيف لأنه مستخدم في 1 أصناف");
+
+        let deleted = delete_category_impl(&pool, unused_category.id)
+            .await
+            .expect("unused category should be deleted");
+        assert!(deleted);
+
+        let categories = list_categories_impl(&pool)
+            .await
+            .expect("categories should still list");
+        assert_eq!(categories.len(), 1);
+        assert_eq!(categories[0].id, used_category.id);
     }
 }
