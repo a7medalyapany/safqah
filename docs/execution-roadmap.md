@@ -26,12 +26,12 @@ file exists on disk in WAL mode, `formatEGP(10500)` returns `"١٠٫٥٠ ج.م"`
 
 | ID    | Task                                            | Status | Notes          |
 | ----- | ----------------------------------------------- | ------ | -------------- |
-| T-010 | Items + categories DB schema + migration        | `[ ]`  | depends: T-004 |
-| T-011 | Items Rust CRUD commands                        | `[ ]`  | depends: T-010 |
-| T-012 | Items management UI (table + CRUD + stat cards) | `[ ]`  | depends: T-011 |
-| T-013 | `useBarcodeScanner` hook                        | `[ ]`  | depends: T-012 |
-| T-014 | Customers + suppliers schema + commands + UI    | `[ ]`  | depends: T-004 |
-| T-015 | Category management                             | `[ ]`  | depends: T-010 |
+| T-010 | Items + categories DB schema + migration        | `[x]`  | depends: T-004 |
+| T-011 | Items Rust CRUD commands                        | `[x]`  | depends: T-010 |
+| T-012 | Items management UI (table + CRUD + stat cards) | `[x]`  | depends: T-011 |
+| T-013 | `useBarcodeScanner` hook                        | `[x]`  | depends: T-012 |
+| T-014 | Customers + suppliers schema + commands + UI    | `[x]`  | depends: T-004 |
+| T-015 | Category management                             | `[x]`  | depends: T-010 |
 
 **M1 exit criteria:** Add an item with barcode, color, size. Search it by name and
 by barcode (both keyboard and simulated scanner). Add a customer and a supplier.
@@ -43,7 +43,7 @@ All data persists after app restart.
 
 | ID    | Task                                                    | Status | Notes                        |
 | ----- | ------------------------------------------------------- | ------ | ---------------------------- |
-| T-020 | Sessions (shift) system — schema + commands + Zustand   | `[ ]`  | depends: T-007               |
+| T-020 | Sessions (shift) system — schema + commands + Zustand   | `[x]`  | depends: T-007               |
 | T-021 | Cart Zustand slice + money math                         | `[ ]`  | depends: T-006               |
 | T-022 | POS screen UI                                           | `[ ]`  | depends: T-020, T-021, T-013 |
 | T-023 | `create_sale_invoice` Rust command (atomic transaction) | `[ ]`  | depends: T-010, T-014        |
