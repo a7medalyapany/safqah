@@ -9,6 +9,10 @@ use tauri::{Manager, State};
 
 use commands::{
     customers::{create_customer, delete_customer, get_customer, list_customers, update_customer},
+    finance::{
+        create_expense, get_cash_summary, list_expense_categories, list_expenses,
+        list_payments, record_customer_payment, record_supplier_payment,
+    },
     force_error, ping,
     inventory::get_item_movements,
     inventory::adjust_stock,
@@ -101,6 +105,13 @@ pub fn run() {
             get_purchase_stats,
             print_receipt,
             list_printers,
+            create_expense,
+            list_expenses,
+            list_expense_categories,
+            get_cash_summary,
+            list_payments,
+            record_customer_payment,
+            record_supplier_payment,
             list_suppliers,
             get_supplier,
             create_supplier,
