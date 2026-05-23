@@ -10,8 +10,9 @@ use tauri::{Manager, State};
 use commands::{
     customers::{create_customer, delete_customer, get_customer, list_customers, update_customer},
     finance::{
-        create_expense, get_cash_summary, list_expense_categories, list_expenses,
-        list_payments, record_customer_payment, record_supplier_payment,
+        create_expense, get_all_deferred_invoices, get_cash_summary, get_customer_ledger,
+        list_expense_categories, list_expenses, list_payments, record_customer_payment,
+        record_invoice_payment, record_supplier_payment,
     },
     force_error, ping,
     inventory::get_item_movements,
@@ -112,6 +113,9 @@ pub fn run() {
             list_payments,
             record_customer_payment,
             record_supplier_payment,
+            get_customer_ledger,
+            get_all_deferred_invoices,
+            record_invoice_payment,
             list_suppliers,
             get_supplier,
             create_supplier,
