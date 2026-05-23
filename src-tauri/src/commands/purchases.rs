@@ -21,7 +21,8 @@ pub struct PurchaseStats {
 #[derive(Debug, sqlx::FromRow)]
 struct ActiveItem {
     id: i64,
-    _name_ar: String,
+    #[allow(dead_code)]
+    name_ar: String,
 }
 
 fn normalize_optional_string(value: Option<String>) -> Option<String> {
@@ -483,6 +484,14 @@ mod tests {
         .map_err(Into::into)
     }
 
+    async fn get_item_stock(pool: &DbPool, item_id: i64) -> Result<i64, AppError> {
+        let (stock,): (i64,) = sqlx::query_as("SELECT current_stock FROM items WHERE id = ?")
+            .bind(item_id)
+            .fetch_one(pool)
+            .await?;
+        Ok(stock)
+    }
+
     #[tokio::test]
     async fn create_purchase_invoice_updates_stock_movements_and_buy_price() -> Result<(), AppError> {
         let pool = test_pool().await?;
@@ -561,6 +570,134 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
         assert_eq!(balance, 23000);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_purchase_invoice_multiple_items_updates_stock() -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let item_a = insert_item(&pool, "Item A", 5).await?;
+        let item_b = insert_item(&pool, "Item B", 1).await?;
+        let item_c = insert_item(&pool, "Item C", 0).await?;
+
+        let payload = CreatePurchasePayload {
+            supplier_id: None,
+            session_id: None,
+            items: vec![
+                PurchaseItemPayload {
+                    item_id: item_a,
+                    qty: 3,
+                    unit_cost_millieme: 8000,
+                    suggested_sell_price_millieme: None,
+                },
+                PurchaseItemPayload {
+                    item_id: item_b,
+                    qty: 2,
+                    unit_cost_millieme: 12000,
+                    suggested_sell_price_millieme: None,
+                },
+                PurchaseItemPayload {
+                    item_id: item_c,
+                    qty: 7,
+                    unit_cost_millieme: 5000,
+                    suggested_sell_price_millieme: Some(9000),
+                },
+            ],
+            global_discount_millieme: 0,
+            payment_method: "cash".to_owned(),
+            paid_millieme: 3 * 8000 + 2 * 12000 + 7 * 5000,
+            notes: None,
+        };
+
+        let purchase = create_purchase_invoice_impl(&pool, payload).await?;
+        assert_eq!(purchase.items.len(), 3);
+
+        assert_eq!(get_item_stock(&pool, item_a).await?, 8);
+        assert_eq!(get_item_stock(&pool, item_b).await?, 3);
+        assert_eq!(get_item_stock(&pool, item_c).await?, 7);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_purchase_invoice_partial_updates_supplier_balance() -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let item_id = insert_item(&pool, "Item A", 0).await?;
+        let supplier_id = insert_supplier(&pool, 1000).await?;
+
+        let payload = CreatePurchasePayload {
+            supplier_id: Some(supplier_id),
+            session_id: None,
+            items: vec![PurchaseItemPayload {
+                item_id,
+                qty: 4,
+                unit_cost_millieme: 3000,
+                suggested_sell_price_millieme: None,
+            }],
+            global_discount_millieme: 0,
+            payment_method: "partial".to_owned(),
+            paid_millieme: 6000,
+            notes: None,
+        };
+
+        let purchase = create_purchase_invoice_impl(&pool, payload).await?;
+        assert_eq!(purchase.status, "partial");
+        assert_eq!(purchase.paid_millieme, 6000);
+
+        let (balance,): (i64,) =
+            sqlx::query_as("SELECT balance_millieme FROM suppliers WHERE id = ?")
+                .bind(supplier_id)
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(balance, 1000 + 6000);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn purchase_stats_reflects_saved_invoices() -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let item_a = insert_item(&pool, "Item A", 0).await?;
+        let item_b = insert_item(&pool, "Item B", 0).await?;
+
+        let payload_paid = CreatePurchasePayload {
+            supplier_id: None,
+            session_id: None,
+            items: vec![PurchaseItemPayload {
+                item_id: item_a,
+                qty: 1,
+                unit_cost_millieme: 10000,
+                suggested_sell_price_millieme: None,
+            }],
+            global_discount_millieme: 0,
+            payment_method: "cash".to_owned(),
+            paid_millieme: 10000,
+            notes: None,
+        };
+        create_purchase_invoice_impl(&pool, payload_paid).await?;
+
+        let payload_deferred = CreatePurchasePayload {
+            supplier_id: None,
+            session_id: None,
+            items: vec![PurchaseItemPayload {
+                item_id: item_b,
+                qty: 2,
+                unit_cost_millieme: 5000,
+                suggested_sell_price_millieme: None,
+            }],
+            global_discount_millieme: 0,
+            payment_method: "deferred".to_owned(),
+            paid_millieme: 0,
+            notes: None,
+        };
+        create_purchase_invoice_impl(&pool, payload_deferred).await?;
+
+        let stats = get_purchase_stats_impl(&pool).await?;
+        assert_eq!(stats.total_count, 2);
+        assert_eq!(stats.paid_count, 1);
+        assert_eq!(stats.deferred_count, 1);
+        assert_eq!(stats.total_purchases_millieme, 20000);
 
         Ok(())
     }
