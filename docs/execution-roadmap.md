@@ -61,10 +61,10 @@ Close app mid-sale, reopen → sale not partially saved (full rollback).
 
 | ID    | Task                                                        | Status | Notes          |
 | ----- | ----------------------------------------------------------- | ------ | -------------- |
-| T-030 | Purchase invoice schema + `create_purchase_invoice` command | `[ ]`  | depends: T-023 |
-| T-031 | Purchase UI                                                 | `[ ]`  | depends: T-030 |
-| T-032 | Stock movements log UI (per-item history)                   | `[ ]`  | depends: T-023 |
-| T-033 | Manual stock adjustment (جرد)                               | `[ ]`  | depends: T-030 |
+| T-030 | Purchase invoice schema + `create_purchase_invoice` command | `[x]`  | depends: T-023 |
+| T-031 | Purchase UI                                                 | `[x]`  | depends: T-030 |
+| T-032 | Stock movements log UI (per-item history)                   | `[x]`  | depends: T-023 |
+| T-033 | Manual stock adjustment (جرد)                               | `[x]`  | depends: T-030 |
 
 **M3a exit criteria:** Create purchase for 3 items from a supplier → stock for each
 item increases → stock movements log shows purchase event.
@@ -75,9 +75,9 @@ item increases → stock movements log shows purchase event.
 
 | ID    | Task                                  | Status | Notes                 |
 | ----- | ------------------------------------- | ------ | --------------------- |
-| T-040 | Expenses + payments schema + commands | `[ ]`  | depends: T-014        |
-| T-041 | Cash vouchers UI (سند قبض / سند صرف)  | `[ ]`  | depends: T-040        |
-| T-042 | Deferred invoice payment tracking     | `[ ]`  | depends: T-023, T-040 |
+| T-040 | Expenses + payments schema + commands | `[x]`  | depends: T-014        |
+| T-041 | Cash vouchers UI (سند قبض / سند صرف)  | `[x]`  | depends: T-040        |
+| T-042 | Deferred invoice payment tracking     | `[x]`  | depends: T-023, T-040 |
 
 **M3b exit criteria:** Create deferred invoice → shows in مديونيات list → record
 partial payment → outstanding balance reduces correctly.
