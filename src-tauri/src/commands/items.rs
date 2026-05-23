@@ -113,6 +113,10 @@ async fn create_item_impl(
         })
         .unwrap_or_else(|| "قطعة".to_owned());
 
+    let current_stock = payload.current_stock.unwrap_or(0);
+
+    let mut tx = pool.begin().await?;
+
     let result = sqlx::query(
         r#"
         INSERT INTO items (
@@ -143,13 +147,32 @@ async fn create_item_impl(
     .bind(normalize_optional_string(payload.size))
     .bind(unit)
     .bind(payload.min_stock.unwrap_or(0))
-    .bind(payload.current_stock.unwrap_or(0))
+    .bind(current_stock)
     .bind(payload.supplier_id)
     .bind(normalize_optional_string(payload.image_path))
-    .execute(pool)
+    .execute(&mut *tx)
     .await?;
 
-    get_item_by_id(pool, result.last_insert_rowid()).await
+    let new_item_id = result.last_insert_rowid();
+
+    if current_stock > 0 {
+        sqlx::query(
+            r#"
+            INSERT INTO stock_movements (
+              item_id, delta, movement_type, reference_type
+            )
+            VALUES (?, ?, 'adjustment', 'manual')
+            "#,
+        )
+        .bind(new_item_id)
+        .bind(current_stock)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+
+    get_item_by_id(pool, new_item_id).await
 }
 
 async fn update_item_impl(
@@ -181,6 +204,15 @@ async fn update_item_impl(
             ));
         }
     }
+
+    let mut tx = pool.begin().await?;
+
+    let (old_stock,): (i64,) =
+        sqlx::query_as("SELECT current_stock FROM items WHERE id = ?")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::not_found("الصنف"))?;
 
     let mut query = QueryBuilder::<Sqlite>::new("UPDATE items SET ");
     let mut has_updates = false;
@@ -260,9 +292,25 @@ async fn update_item_impl(
         query.push("min_stock = ").push_bind(min_stock);
     }
 
-    if let Some(current_stock) = payload.current_stock {
+    if let Some(new_stock) = payload.current_stock {
         push_separator(&mut query);
-        query.push("current_stock = ").push_bind(current_stock);
+        query.push("current_stock = ").push_bind(new_stock);
+
+        let delta = new_stock - old_stock;
+        if delta != 0 {
+            sqlx::query(
+                r#"
+                INSERT INTO stock_movements (
+                  item_id, delta, movement_type, reference_type
+                )
+                VALUES (?, ?, 'adjustment', 'manual')
+                "#,
+            )
+            .bind(id)
+            .bind(delta)
+            .execute(&mut *tx)
+            .await?;
+        }
     }
 
     if let Some(supplier_id) = payload.supplier_id {
@@ -283,10 +331,12 @@ async fn update_item_impl(
     query.push(" WHERE id = ");
     query.push_bind(id);
 
-    let result = query.build().execute(pool).await?;
+    let result = query.build().execute(&mut *tx).await?;
     if result.rows_affected() == 0 {
         return Err(AppError::not_found("الصنف"));
     }
+
+    tx.commit().await?;
 
     get_item_by_id(pool, id).await
 }
