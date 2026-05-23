@@ -4,8 +4,10 @@ use crate::{
     db::DbPool,
     errors::AppError,
     models::finance::{
-        CashSummary, Expense, ExpenseCategory, ExpenseWithCategory, Payment, PaymentWithEntity,
+        CashSummary, CustomerLedger, DeferredInvoice, DeferredInvoiceSummary, Expense,
+        ExpenseCategory, ExpenseWithCategory, Payment, PaymentWithEntity,
     },
+    models::sale::InvoiceRow,
 };
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -358,6 +360,176 @@ async fn list_payments_impl(
         .map_err(Into::into)
 }
 
+// ── get_customer_ledger ─────────────────────────────────────────────────────
+
+async fn get_customer_ledger_impl(
+    pool: &DbPool,
+    customer_id: i64,
+) -> Result<CustomerLedger, AppError> {
+    let customer = sqlx::query_as::<_, crate::models::customer::Customer>(
+        "SELECT * FROM customers WHERE id = ? AND is_active = 1",
+    )
+    .bind(customer_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("العميل"))?;
+
+    let deferred_invoices = sqlx::query_as::<_, DeferredInvoice>(
+        r#"
+        SELECT
+          id AS invoice_id,
+          invoice_number,
+          created_at,
+          total_millieme,
+          paid_millieme,
+          (total_millieme - paid_millieme) AS remaining_millieme,
+          status
+        FROM invoices
+        WHERE customer_id = ? AND status IN ('deferred', 'partial')
+        ORDER BY created_at ASC
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_all(pool)
+    .await?;
+
+    let payments = sqlx::query_as::<_, Payment>(
+        r#"
+        SELECT id, entity_type, entity_id, amount_millieme, direction, method,
+               reference_invoice_id, notes, session_id, created_at
+        FROM payments
+        WHERE entity_type = 'customer' AND entity_id = ?
+        ORDER BY created_at DESC
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_all(pool)
+    .await?;
+
+    let total_owed_millieme = customer.balance_millieme;
+
+    Ok(CustomerLedger {
+        customer,
+        deferred_invoices,
+        payments,
+        total_owed_millieme,
+    })
+}
+
+// ── get_all_deferred_invoices ───────────────────────────────────────────────
+
+async fn get_all_deferred_invoices_impl(
+    pool: &DbPool,
+) -> Result<Vec<DeferredInvoiceSummary>, AppError> {
+    sqlx::query_as::<_, DeferredInvoiceSummary>(
+        r#"
+        SELECT
+          i.id AS invoice_id,
+          i.invoice_number,
+          i.customer_id,
+          c.name AS customer_name,
+          i.total_millieme,
+          i.paid_millieme,
+          (i.total_millieme - i.paid_millieme) AS remaining_millieme,
+          i.status,
+          i.created_at,
+          CAST(julianday('now') - julianday(i.created_at) AS INTEGER) AS days_outstanding
+        FROM invoices i
+        JOIN customers c ON c.id = i.customer_id
+        WHERE i.status IN ('deferred', 'partial')
+        ORDER BY i.created_at ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+    .map_err(Into::into)
+}
+
+// ── record_invoice_payment ──────────────────────────────────────────────────
+
+async fn record_invoice_payment_impl(
+    pool: &DbPool,
+    invoice_id: i64,
+    amount_millieme: i64,
+    method: String,
+    session_id: Option<i64>,
+) -> Result<InvoiceRow, AppError> {
+    if amount_millieme <= 0 {
+        return Err(AppError::validation("المبلغ يجب أن يكون أكبر من صفر"));
+    }
+
+    let mut tx = pool.begin().await?;
+
+    let invoice = sqlx::query_as::<_, InvoiceRow>("SELECT * FROM invoices WHERE id = ?")
+        .bind(invoice_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::not_found("الفاتورة"))?;
+
+    if invoice.status == "paid" {
+        return Err(AppError::new(
+            "INVOICE_ALREADY_PAID",
+            "الفاتورة مدفوعة بالكامل بالفعل",
+            "Invoice is already fully paid",
+        ));
+    }
+
+    let customer_id = invoice.customer_id.ok_or_else(|| {
+        AppError::new(
+            "INVOICE_NO_CUSTOMER",
+            "الفاتورة ليس لها عميل",
+            "Invoice has no customer",
+        )
+    })?;
+
+    let remaining = invoice.total_millieme - invoice.paid_millieme;
+    if amount_millieme > remaining {
+        return Err(AppError::validation("المبلغ يتجاوز المتبقي على الفاتورة"));
+    }
+
+    let new_paid = invoice.paid_millieme + amount_millieme;
+    let new_status = if new_paid >= invoice.total_millieme {
+        "paid"
+    } else {
+        "partial"
+    };
+
+    sqlx::query("UPDATE invoices SET paid_millieme = ?, status = ? WHERE id = ?")
+        .bind(new_paid)
+        .bind(new_status)
+        .bind(invoice_id)
+        .execute(&mut *tx)
+        .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO payments (entity_type, entity_id, amount_millieme, direction, method, reference_invoice_id, session_id)
+        VALUES ('customer', ?, ?, 'in', ?, ?, ?)
+        "#,
+    )
+    .bind(customer_id)
+    .bind(amount_millieme)
+    .bind(&method)
+    .bind(invoice_id)
+    .bind(session_id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query("UPDATE customers SET balance_millieme = balance_millieme - ? WHERE id = ?")
+        .bind(amount_millieme)
+        .bind(customer_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    sqlx::query_as::<_, InvoiceRow>("SELECT * FROM invoices WHERE id = ?")
+        .bind(invoice_id)
+        .fetch_one(pool)
+        .await
+        .map_err(Into::into)
+}
+
 // ── Tauri commands ──────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -433,6 +605,32 @@ pub async fn record_supplier_payment(
 ) -> Result<Payment, AppError> {
     record_supplier_payment_impl(&pool, supplier_id, amount_millieme, method, notes, session_id)
         .await
+}
+
+#[tauri::command]
+pub async fn get_customer_ledger(
+    pool: State<'_, DbPool>,
+    customer_id: i64,
+) -> Result<CustomerLedger, AppError> {
+    get_customer_ledger_impl(&pool, customer_id).await
+}
+
+#[tauri::command]
+pub async fn get_all_deferred_invoices(
+    pool: State<'_, DbPool>,
+) -> Result<Vec<DeferredInvoiceSummary>, AppError> {
+    get_all_deferred_invoices_impl(&pool).await
+}
+
+#[tauri::command]
+pub async fn record_invoice_payment(
+    pool: State<'_, DbPool>,
+    invoice_id: i64,
+    amount_millieme: i64,
+    method: String,
+    session_id: Option<i64>,
+) -> Result<InvoiceRow, AppError> {
+    record_invoice_payment_impl(&pool, invoice_id, amount_millieme, method, session_id).await
 }
 
 // ── tests ───────────────────────────────────────────────────────────────────

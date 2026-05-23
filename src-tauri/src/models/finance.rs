@@ -65,3 +65,36 @@ pub struct CashSummary {
     pub total_payments_in_millieme: i64,
     pub net_cash_millieme: i64,
 }
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+pub struct DeferredInvoice {
+    pub invoice_id: i64,
+    pub invoice_number: String,
+    pub created_at: String,
+    pub total_millieme: i64,
+    pub paid_millieme: i64,
+    pub remaining_millieme: i64,
+    pub status: String,
+}
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+pub struct DeferredInvoiceSummary {
+    pub invoice_id: i64,
+    pub invoice_number: String,
+    pub customer_id: i64,
+    pub customer_name: String,
+    pub total_millieme: i64,
+    pub paid_millieme: i64,
+    pub remaining_millieme: i64,
+    pub status: String,
+    pub created_at: String,
+    pub days_outstanding: i64,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct CustomerLedger {
+    pub customer: crate::models::customer::Customer,
+    pub deferred_invoices: Vec<DeferredInvoice>,
+    pub payments: Vec<Payment>,
+    pub total_owed_millieme: i64,
+}

@@ -1,12 +1,13 @@
 import { useDeferredValue, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@tauri-apps/api/core";
-import { BadgePlus, Edit3, Search, Trash2, Users } from "lucide-react";
+import { BadgePlus, BookOpen, Edit3, Search, Trash2, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { CustomerLedgerSheet } from "@/modules/parties/CustomerLedgerSheet";
 import { DeletePartyDialog } from "@/modules/parties/DeletePartyDialog";
 import { PartyFormDialog } from "@/modules/parties/PartyFormDialog";
 import type { Party, PartyKind } from "@/modules/parties/types";
@@ -18,6 +19,7 @@ export function PartyPage({ kind }: { kind: PartyKind }) {
   const [search, setSearch] = useState("");
   const [editingParty, setEditingParty] = useState<Party | null>(null);
   const [deletingParty, setDeletingParty] = useState<Party | null>(null);
+  const [ledgerCustomerId, setLedgerCustomerId] = useState<number | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
 
   const deferredSearch = useDeferredValue(search);
@@ -109,6 +111,16 @@ export function PartyPage({ kind }: { kind: PartyKind }) {
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-row-reverse justify-start gap-2">
+                              {kind === "customer" && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon-sm"
+                                  onClick={() => setLedgerCustomerId(party.id)}
+                                  aria-label="سجل العميل"
+                                >
+                                  <BookOpen />
+                                </Button>
+                              )}
                               <Button
                                 variant="ghost"
                                 size="icon-sm"
@@ -159,6 +171,16 @@ export function PartyPage({ kind }: { kind: PartyKind }) {
         onOpenChange={(open) => {
           if (!open) {
             setDeletingParty(null);
+          }
+        }}
+      />
+
+      <CustomerLedgerSheet
+        customerId={ledgerCustomerId}
+        open={ledgerCustomerId !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setLedgerCustomerId(null);
           }
         }}
       />
