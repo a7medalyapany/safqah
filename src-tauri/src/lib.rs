@@ -10,6 +10,8 @@ use tauri::{Manager, State};
 use commands::{
     customers::{create_customer, delete_customer, get_customer, list_customers, update_customer},
     force_error, ping,
+    inventory::get_item_movements,
+    inventory::adjust_stock,
     items::{
         create_category, create_item, delete_category, delete_item, get_item_by_barcode,
         list_categories, list_items, update_item,
@@ -74,6 +76,8 @@ pub fn run() {
             create_item,
             update_item,
             delete_item,
+            get_item_movements,
+            adjust_stock,
             list_categories,
             create_category,
             delete_category,
