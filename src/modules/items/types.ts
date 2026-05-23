@@ -24,6 +24,18 @@ export type Item = {
   updated_at: string;
 };
 
+export type StockMovement = {
+  id: number;
+  item_id: number;
+  delta: number;
+  movement_type: "sale" | "purchase" | "return" | "adjustment";
+  reference_id: number | null;
+  reference_type: string | null;
+  notes: string | null;
+  created_at: string;
+  reference_number: string | null;
+};
+
 export type AppErrorShape = {
   code: string;
   message_ar: string;
