@@ -19,6 +19,7 @@ use commands::{
         create_return, create_sale_invoice, get_invoice_detail, get_invoice_stats, list_invoices,
         search_items,
     },
+    purchases::{create_purchase_invoice, get_purchase_detail, get_purchase_stats, list_purchases},
     sessions::{
         close_session, get_active_session, get_session_sales_total_millieme, open_session,
     },
@@ -90,6 +91,10 @@ pub fn run() {
             list_invoices,
             get_invoice_detail,
             get_invoice_stats,
+            list_purchases,
+            get_purchase_detail,
+            create_purchase_invoice,
+            get_purchase_stats,
             print_receipt,
             list_printers,
             list_suppliers,
