@@ -42,6 +42,12 @@ export function AppLayout() {
   }, []);
 
   const cashierName = activeSession ? `الكاشير ${activeSession.cashier_id}` : null;
+  const currentDate = new Intl.DateTimeFormat("ar-EG", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(new Date());
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -56,7 +62,7 @@ export function AppLayout() {
             <div>
               <p className="text-lg font-semibold">إدارة الجلسة الحالية</p>
               <p className="text-sm text-muted-foreground">
-                شاشة نقطة البيع تتطلب وردية مفتوحة.
+                {currentDate}
               </p>
             </div>
 
