@@ -18,7 +18,7 @@ import {
   Users,
   WalletCards,
 } from "lucide-react";
-import { useMemo, useState, type ReactNode } from "react";
+import { forwardRef, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Bar,
@@ -48,6 +48,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { formatEGP, toMillieme } from "@/shared/utils/money";
+import { exportToCsv } from "@/shared/utils/exportCsv";
+import { printReport } from "@/shared/utils/printReport";
 import { SectionCard } from "@/shared/components/SectionCard";
 import { useSessionStore } from "@/store/sessionSlice";
 
@@ -170,8 +172,17 @@ function egpValue(millieme: number) {
   return Math.round((millieme / 1000) * 100) / 100;
 }
 
-function notifyPending(action: string) {
-  toast.info(`${action} سيتم ربطه في مهمة التصدير والطباعة T-053`);
+function printTable(title: string, table: HTMLTableElement | null) {
+  if (!table) {
+    toast.error("لا يوجد جدول متاح للطباعة");
+    return;
+  }
+
+  printReport(title, table.outerHTML);
+}
+
+function missingValue(value: string | null | undefined) {
+  return value || "—";
 }
 
 const reportSections: {
@@ -390,14 +401,22 @@ function ReportShell({
   );
 }
 
-function ReportActions() {
+function ReportActions({
+  onExportCsv,
+  onPrint,
+  disabled,
+}: {
+  onExportCsv: () => void;
+  onPrint: () => void;
+  disabled?: boolean;
+}) {
   return (
     <div className="flex flex-wrap gap-2">
-      <Button variant="outline" onClick={() => notifyPending("تصدير CSV")}>
+      <Button variant="outline" onClick={onExportCsv} disabled={disabled}>
         <Download />
         تصدير CSV
       </Button>
-      <Button variant="outline" onClick={() => notifyPending("الطباعة")}>
+      <Button variant="outline" onClick={onPrint} disabled={disabled}>
         <Printer />
         طباعة
       </Button>
@@ -408,6 +427,7 @@ function ReportActions() {
 function DailySalesReportView({ onBack }: { onBack: () => void }) {
   const [date, setDate] = useState(today());
   const [submittedDate, setSubmittedDate] = useState(date);
+  const tableRef = useRef<HTMLTableElement>(null);
 
   const reportQuery = useQuery({
     queryKey: ["report-daily-sales", submittedDate],
@@ -418,6 +438,18 @@ function DailySalesReportView({ onBack }: { onBack: () => void }) {
   });
 
   const report = reportQuery.data;
+  const reportRows = report
+    ? [
+        [
+          report.date,
+          String(report.invoice_count),
+          formatEGP(report.total_millieme),
+          formatEGP(report.cash_millieme),
+          formatEGP(report.card_millieme),
+          formatEGP(report.deferred_millieme),
+        ],
+      ]
+    : [];
 
   return (
     <ReportShell
@@ -440,7 +472,34 @@ function DailySalesReportView({ onBack }: { onBack: () => void }) {
         <KpiCard title="متوسط الفاتورة" value={formatEGP(report?.avg_invoice_millieme ?? 0)} icon={<Receipt />} />
       </section>
 
-      <ReportActions />
+      <DataTable
+        ref={tableRef}
+        columns={["التاريخ", "عدد الفواتير", "الإجمالي", "نقدي", "فيزا", "آجل"]}
+        empty={!report}
+      >
+        {reportRows.map((row) => (
+          <tr key={row[0]} className="border-t">
+            {row.map((cell, index) => (
+              <TableCell key={`${cell}-${index}`}>{cell}</TableCell>
+            ))}
+          </tr>
+        ))}
+      </DataTable>
+
+      <ReportActions
+        disabled={!report}
+        onExportCsv={() =>
+          exportToCsv(`تقرير_مبيعات_${submittedDate}.csv`, [
+            "التاريخ",
+            "عدد الفواتير",
+            "الإجمالي",
+            "نقدي",
+            "فيزا",
+            "آجل",
+          ], reportRows)
+        }
+        onPrint={() => printTable("تقرير المبيعات اليومية", tableRef.current)}
+      />
     </ReportShell>
   );
 }
@@ -456,6 +515,7 @@ function PeriodSalesReportView({
   const [dateTo, setDateTo] = useState(today());
   const [groupBy, setGroupBy] = useState<GroupBy>(initialGroup);
   const [params, setParams] = useState({ dateFrom, dateTo, groupBy });
+  const tableRef = useRef<HTMLTableElement>(null);
 
   const reportQuery = useQuery({
     queryKey: ["report-sales-by-period", params],
@@ -472,6 +532,12 @@ function PeriodSalesReportView({
     ...row,
     total_egp: egpValue(row.total_millieme),
   }));
+  const csvRows = rows.map((row) => [
+    row.period_label,
+    String(row.invoice_count),
+    formatEGP(row.total_millieme),
+    formatEGP(row.discount_millieme),
+  ]);
 
   return (
     <ReportShell
@@ -513,6 +579,7 @@ function PeriodSalesReportView({
       </ChartCard>
 
       <DataTable
+        ref={tableRef}
         columns={["الفترة", "عدد الفواتير", "الإجمالي", "الخصم"]}
         empty={rows.length === 0}
       >
@@ -526,7 +593,18 @@ function PeriodSalesReportView({
         ))}
       </DataTable>
 
-      <ReportActions />
+      <ReportActions
+        disabled={rows.length === 0}
+        onExportCsv={() =>
+          exportToCsv(`مبيعات_${groupLabels[params.groupBy]}_${params.dateFrom}_${params.dateTo}.csv`, [
+            "الفترة",
+            "عدد الفواتير",
+            "الإجمالي",
+            "الخصم",
+          ], csvRows)
+        }
+        onPrint={() => printTable("تقرير المبيعات حسب الفترة", tableRef.current)}
+      />
     </ReportShell>
   );
 }
@@ -536,6 +614,7 @@ function TopItemsReportView({ onBack }: { onBack: () => void }) {
   const [dateTo, setDateTo] = useState(today());
   const [limit, setLimit] = useState(10);
   const [params, setParams] = useState({ dateFrom, dateTo, limit });
+  const tableRef = useRef<HTMLTableElement>(null);
 
   const reportQuery = useQuery({
     queryKey: ["report-top-items", params],
@@ -548,6 +627,13 @@ function TopItemsReportView({ onBack }: { onBack: () => void }) {
   });
 
   const rows = reportQuery.data ?? [];
+  const csvRows = rows.map((row) => [
+    row.name_ar,
+    String(row.total_qty_sold),
+    formatEGP(row.total_revenue_millieme),
+    formatEGP(row.total_cost_millieme),
+    formatEGP(row.gross_profit_millieme),
+  ]);
 
   return (
     <ReportShell
@@ -584,7 +670,8 @@ function TopItemsReportView({ onBack }: { onBack: () => void }) {
       </ChartCard>
 
       <DataTable
-        columns={["الصنف", "الكمية المباعة", "الإيراد", "التكلفة", "الربح الإجمالي"]}
+        ref={tableRef}
+        columns={["الصنف", "الكمية المباعة", "الإيراد", "التكلفة", "الربح"]}
         empty={rows.length === 0}
       >
         {rows.map((row) => (
@@ -602,7 +689,19 @@ function TopItemsReportView({ onBack }: { onBack: () => void }) {
         ))}
       </DataTable>
 
-      <ReportActions />
+      <ReportActions
+        disabled={rows.length === 0}
+        onExportCsv={() =>
+          exportToCsv(`أفضل_الأصناف_${params.dateFrom}_${params.dateTo}.csv`, [
+            "الصنف",
+            "الكمية المباعة",
+            "الإيراد",
+            "التكلفة",
+            "الربح",
+          ], csvRows)
+        }
+        onPrint={() => printTable("أفضل المنتجات مبيعاً", tableRef.current)}
+      />
     </ReportShell>
   );
 }
@@ -611,6 +710,7 @@ function ProfitReportView({ onBack }: { onBack: () => void }) {
   const [dateFrom, setDateFrom] = useState(monthStart());
   const [dateTo, setDateTo] = useState(today());
   const [params, setParams] = useState({ dateFrom, dateTo });
+  const tableRef = useRef<HTMLTableElement>(null);
 
   const reportQuery = useQuery({
     queryKey: ["report-profit-analysis", params],
@@ -627,6 +727,18 @@ function ProfitReportView({ onBack }: { onBack: () => void }) {
         { name: "صافي الإيراد", value: egpValue(report.net_revenue_millieme) },
         { name: "تكلفة البضاعة", value: egpValue(report.cost_of_goods_millieme) },
         { name: "المصروفات", value: egpValue(report.total_expenses_millieme) },
+      ]
+    : [];
+  const csvRows = report
+    ? [
+        ["الإيراد الإجمالي", formatEGP(report.gross_revenue_millieme)],
+        ["إجمالي الخصم", formatEGP(report.total_discount_millieme)],
+        ["صافي الإيراد", formatEGP(report.net_revenue_millieme)],
+        ["تكلفة البضاعة", formatEGP(report.cost_of_goods_millieme)],
+        ["الربح الإجمالي", formatEGP(report.gross_profit_millieme)],
+        ["إجمالي المصروفات", formatEGP(report.total_expenses_millieme)],
+        ["صافي الربح", formatEGP(report.net_profit_millieme)],
+        ["هامش الربح", `${report.profit_margin_percent.toFixed(2)}%`],
       ]
     : [];
 
@@ -675,7 +787,25 @@ function ProfitReportView({ onBack }: { onBack: () => void }) {
         </CardContent>
       </Card>
 
-      <ReportActions />
+      <DataTable ref={tableRef} columns={["البند", "القيمة"]} empty={!report}>
+        {csvRows.map((row) => (
+          <tr key={row[0]} className="border-t">
+            <TableCell>{row[0]}</TableCell>
+            <TableCell>{row[1]}</TableCell>
+          </tr>
+        ))}
+      </DataTable>
+
+      <ReportActions
+        disabled={!report}
+        onExportCsv={() =>
+          exportToCsv(`تحليل_الأرباح_${params.dateFrom}_${params.dateTo}.csv`, [
+            "البند",
+            "القيمة",
+          ], csvRows)
+        }
+        onPrint={() => printTable("تحليل الأرباح", tableRef.current)}
+      />
     </ReportShell>
   );
 }
@@ -684,6 +814,7 @@ function ExpenseSummaryView({ onBack }: { onBack: () => void }) {
   const [dateFrom, setDateFrom] = useState(monthStart());
   const [dateTo, setDateTo] = useState(today());
   const [params, setParams] = useState({ dateFrom, dateTo });
+  const tableRef = useRef<HTMLTableElement>(null);
 
   const expensesQuery = useQuery({
     queryKey: ["report-expense-summary", params],
@@ -707,6 +838,7 @@ function ExpenseSummaryView({ onBack }: { onBack: () => void }) {
       .sort((a, b) => b.amount_millieme - a.amount_millieme);
   }, [rows]);
   const total = summary.reduce((sum, row) => sum + row.amount_millieme, 0);
+  const csvRows = summary.map((row) => [row.category, formatEGP(row.amount_millieme)]);
 
   return (
     <ReportShell
@@ -735,7 +867,7 @@ function ExpenseSummaryView({ onBack }: { onBack: () => void }) {
           }))}
         />
       </ChartCard>
-      <DataTable columns={["التصنيف", "الإجمالي"]} empty={summary.length === 0}>
+      <DataTable ref={tableRef} columns={["التصنيف", "الإجمالي"]} empty={summary.length === 0}>
         {summary.map((row) => (
           <tr key={row.category} className="border-t">
             <TableCell>{row.category}</TableCell>
@@ -743,7 +875,16 @@ function ExpenseSummaryView({ onBack }: { onBack: () => void }) {
           </tr>
         ))}
       </DataTable>
-      <ReportActions />
+      <ReportActions
+        disabled={summary.length === 0}
+        onExportCsv={() =>
+          exportToCsv(`ملخص_المصروفات_${params.dateFrom}_${params.dateTo}.csv`, [
+            "التصنيف",
+            "الإجمالي",
+          ], csvRows)
+        }
+        onPrint={() => printTable("ملخص المصروفات", tableRef.current)}
+      />
     </ReportShell>
   );
 }
@@ -752,6 +893,7 @@ function PaymentMethodsReportView({ onBack }: { onBack: () => void }) {
   const [dateFrom, setDateFrom] = useState(monthStart());
   const [dateTo, setDateTo] = useState(today());
   const [params, setParams] = useState({ dateFrom, dateTo });
+  const tableRef = useRef<HTMLTableElement>(null);
 
   const reportQuery = useQuery({
     queryKey: ["report-payment-methods", params],
@@ -763,6 +905,12 @@ function PaymentMethodsReportView({ onBack }: { onBack: () => void }) {
   });
 
   const rows = reportQuery.data ?? [];
+  const csvRows = rows.map((row) => [
+    paymentMethodLabels[row.method] ?? row.method,
+    String(row.invoice_count),
+    formatEGP(row.total_millieme),
+    `${row.percentage.toFixed(2)}%`,
+  ]);
 
   return (
     <ReportShell
@@ -792,6 +940,7 @@ function PaymentMethodsReportView({ onBack }: { onBack: () => void }) {
       </ChartCard>
 
       <DataTable
+        ref={tableRef}
         columns={["طريقة الدفع", "عدد الفواتير", "الإجمالي", "النسبة"]}
         empty={rows.length === 0}
       >
@@ -804,13 +953,25 @@ function PaymentMethodsReportView({ onBack }: { onBack: () => void }) {
           </tr>
         ))}
       </DataTable>
-      <ReportActions />
+      <ReportActions
+        disabled={rows.length === 0}
+        onExportCsv={() =>
+          exportToCsv(`طرق_الدفع_${params.dateFrom}_${params.dateTo}.csv`, [
+            "طريقة الدفع",
+            "عدد الفواتير",
+            "الإجمالي",
+            "النسبة",
+          ], csvRows)
+        }
+        onPrint={() => printTable("تقرير طرق الدفع", tableRef.current)}
+      />
     </ReportShell>
   );
 }
 
 function BalancesReportView({ kind, onBack }: { kind: BalanceKind; onBack: () => void }) {
   const [selectedRow, setSelectedRow] = useState<BalanceRow | null>(null);
+  const tableRef = useRef<HTMLTableElement>(null);
   const title = kind === "customer" ? "تقرير ديون العملاء" : "تقرير ديون الموردين";
   const command = kind === "customer" ? "report_customer_balances" : "report_supplier_balances";
 
@@ -821,6 +982,12 @@ function BalancesReportView({ kind, onBack }: { kind: BalanceKind; onBack: () =>
 
   const rows = reportQuery.data ?? [];
   const total = rows.reduce((sum, row) => sum + row.balance_millieme, 0);
+  const csvRows = rows.map((row) => [
+    row.name,
+    missingValue(row.phone),
+    formatEGP(row.balance_millieme),
+    String(row.deferred_invoice_count),
+  ]);
 
   return (
     <ReportShell
@@ -829,6 +996,7 @@ function BalancesReportView({ kind, onBack }: { kind: BalanceKind; onBack: () =>
       onBack={onBack}
     >
       <DataTable
+        ref={tableRef}
         columns={["الاسم", "الهاتف", "المديونية", "عدد الفواتير", "أقدم فاتورة", "الإجراءات"]}
         empty={rows.length === 0}
       >
@@ -853,7 +1021,18 @@ function BalancesReportView({ kind, onBack }: { kind: BalanceKind; onBack: () =>
         ) : null}
       </DataTable>
 
-      <ReportActions />
+      <ReportActions
+        disabled={rows.length === 0}
+        onExportCsv={() =>
+          exportToCsv(`${kind === "customer" ? "مديونيات_العملاء" : "مديونيات_الموردين"}_${today()}.csv`, [
+            kind === "customer" ? "العميل" : "المورد",
+            "الهاتف",
+            "المديونية",
+            "عدد الفواتير",
+          ], csvRows)
+        }
+        onPrint={() => printTable(title, tableRef.current)}
+      />
       <BalancePaymentDialog
         kind={kind}
         row={selectedRow}
@@ -866,12 +1045,19 @@ function BalancesReportView({ kind, onBack }: { kind: BalanceKind; onBack: () =>
 }
 
 function LowStockReportView({ onBack }: { onBack: () => void }) {
+  const tableRef = useRef<HTMLTableElement>(null);
   const reportQuery = useQuery({
     queryKey: ["report-low-stock"],
     queryFn: () => invoke<LowStockItem[]>("report_low_stock", { threshold: null }),
   });
 
   const rows = reportQuery.data ?? [];
+  const csvRows = rows.map((row) => [
+    row.name_ar,
+    String(row.current_stock),
+    String(row.min_stock),
+    String(row.shortage),
+  ]);
 
   return (
     <ReportShell
@@ -880,6 +1066,7 @@ function LowStockReportView({ onBack }: { onBack: () => void }) {
       onBack={onBack}
     >
       <DataTable
+        ref={tableRef}
         columns={["الصنف", "المخزون الحالي", "الحد الأدنى", "النقص", "آخر بيع", "الإجراءات"]}
         empty={rows.length === 0}
       >
@@ -908,7 +1095,18 @@ function LowStockReportView({ onBack }: { onBack: () => void }) {
           </tr>
         ))}
       </DataTable>
-      <ReportActions />
+      <ReportActions
+        disabled={rows.length === 0}
+        onExportCsv={() =>
+          exportToCsv(`مخزون_منخفض_${today()}.csv`, [
+            "الصنف",
+            "المخزون الحالي",
+            "الحد الأدنى",
+            "النقص",
+          ], csvRows)
+        }
+        onPrint={() => printTable("تقرير المخزون المنخفض", tableRef.current)}
+      />
     </ReportShell>
   );
 }
@@ -1146,20 +1344,21 @@ function PieChartBox({ data }: { data: { name: string; value: number }[] }) {
   );
 }
 
-function DataTable({
-  columns,
-  empty,
-  children,
-}: {
+type DataTableProps = {
   columns: string[];
   empty: boolean;
   children: ReactNode;
-}) {
+};
+
+const DataTable = forwardRef<HTMLTableElement, DataTableProps>(function DataTable(
+  { columns, empty, children },
+  ref,
+) {
   return (
     <Card className="overflow-hidden">
       <CardContent className="p-0">
         <div className="overflow-x-auto">
-          <table className="min-w-full text-right">
+          <table ref={ref} className="min-w-full text-right">
             <thead className="bg-muted/40 text-sm text-muted-foreground">
               <tr>
                 {columns.map((column) => (
@@ -1183,7 +1382,7 @@ function DataTable({
       </CardContent>
     </Card>
   );
-}
+});
 
 function TableHead({ children }: { children: ReactNode }) {
   return <th className="whitespace-nowrap px-4 py-3 font-medium">{children}</th>;

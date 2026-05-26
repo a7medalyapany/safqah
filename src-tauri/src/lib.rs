@@ -67,6 +67,8 @@ async fn get_db_info(pool: State<'_, DbPool>) -> Result<DbInfo, AppError> {
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
         .setup(|app| {
             let pool = tauri::async_runtime::block_on(db::get_pool());
             let print_queue = new_print_queue();
