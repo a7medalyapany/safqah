@@ -19,6 +19,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Bar,
   BarChart,
@@ -36,7 +37,7 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Dialog,
   DialogContent,
@@ -47,6 +48,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { formatEGP, toMillieme } from "@/shared/utils/money";
+import { SectionCard } from "@/shared/components/SectionCard";
 import { useSessionStore } from "@/store/sessionSlice";
 
 type ReportView =
@@ -264,10 +266,22 @@ const reportSections: {
 ];
 
 export default function ReportsPage() {
-  const [activeView, setActiveView] = useState<ReportView | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const queryView = toReportView(searchParams.get("view"));
+  const [activeView, setActiveView] = useState<ReportView | null>(queryView);
+
+  const handleSelectView = (view: ReportView) => {
+    setActiveView(view);
+    setSearchParams({ view });
+  };
+
+  const handleBack = () => {
+    setActiveView(null);
+    setSearchParams({});
+  };
 
   if (activeView) {
-    return <ReportViewScreen view={activeView} onBack={() => setActiveView(null)} />;
+    return <ReportViewScreen view={activeView} onBack={handleBack} />;
   }
 
   return (
@@ -287,7 +301,7 @@ export default function ReportsPage() {
               <button
                 key={card.view}
                 type="button"
-                onClick={() => setActiveView(card.view)}
+                onClick={() => handleSelectView(card.view)}
                 className="group rounded-2xl text-right outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
               >
                 <Card className="h-full transition-all hover:-translate-y-0.5 hover:shadow-md">
@@ -326,6 +340,26 @@ function ReportViewScreen({ view, onBack }: { view: ReportView; onBack: () => vo
   const initialGroup: GroupBy =
     view === "period-week" ? "week" : view === "period-month" ? "month" : "day";
   return <PeriodSalesReportView initialGroup={initialGroup} onBack={onBack} />;
+}
+
+function toReportView(value: string | null): ReportView | null {
+  if (
+    value === "daily" ||
+    value === "period-day" ||
+    value === "period-week" ||
+    value === "period-month" ||
+    value === "top-items" ||
+    value === "profit" ||
+    value === "expenses" ||
+    value === "payments" ||
+    value === "customers" ||
+    value === "suppliers" ||
+    value === "low-stock"
+  ) {
+    return value;
+  }
+
+  return null;
 }
 
 function ReportShell({
@@ -1045,12 +1079,13 @@ function KpiCard({ title, value, icon }: { title: string; value: ReactNode; icon
 
 function ChartCard({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <Card>
-      <CardHeader className="border-b">
-        <CardTitle>{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="h-[360px] p-4">{children}</CardContent>
-    </Card>
+    <SectionCard
+      title={title}
+      withHeaderBorder
+      contentClassName="h-[360px] p-4"
+    >
+      {children}
+    </SectionCard>
   );
 }
 
