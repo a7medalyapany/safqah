@@ -22,6 +22,11 @@ use commands::{
         list_categories, list_items, update_item,
     },
     print::{list_printers, print_receipt},
+    reports::{
+        report_customer_balances, report_daily_sales, report_low_stock, report_payment_methods,
+        report_profit_analysis, report_sales_by_period, report_supplier_balances,
+        report_top_items,
+    },
     sales::{
         create_return, create_sale_invoice, get_invoice_detail, get_invoice_stats, list_invoices,
         search_items,
@@ -120,7 +125,15 @@ pub fn run() {
             get_supplier,
             create_supplier,
             update_supplier,
-            delete_supplier
+            delete_supplier,
+            report_daily_sales,
+            report_sales_by_period,
+            report_top_items,
+            report_low_stock,
+            report_profit_analysis,
+            report_payment_methods,
+            report_customer_balances,
+            report_supplier_balances
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
