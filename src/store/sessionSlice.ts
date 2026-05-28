@@ -16,7 +16,7 @@ export type SessionState = {
   activeSession: Session | null;
   isLoading: boolean;
   fetchActiveSession: () => Promise<void>;
-  openSession: (openingCash: number) => Promise<void>;
+  openSession: (cashierId: number, openingCash: number) => Promise<void>;
   closeSession: (closingCash: number, notes?: string) => Promise<void>;
 };
 
@@ -34,8 +34,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       throw error;
     }
   },
-  async openSession(openingCash) {
+  async openSession(cashierId, openingCash) {
     const activeSession = await invoke<Session>("open_session", {
+      cashierId,
       openingCashMillieme: openingCash,
     });
 
