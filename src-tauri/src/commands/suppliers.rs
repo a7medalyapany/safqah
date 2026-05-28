@@ -4,8 +4,19 @@ use tauri::State;
 use crate::{
     db::DbPool,
     errors::AppError,
+    models::import::CsvImportReport,
     models::supplier::{CreateSupplierPayload, Supplier, UpdateSupplierPayload},
 };
+
+#[derive(Debug, serde::Deserialize)]
+struct SupplierCsvRow {
+    name: String,
+    phone: Option<String>,
+    address: Option<String>,
+    balance_millieme: Option<String>,
+    tax_number: Option<String>,
+    notes: Option<String>,
+}
 
 fn normalize_optional_string(value: Option<String>) -> Option<String> {
     value.and_then(|value| {
@@ -176,6 +187,73 @@ async fn delete_supplier_impl(pool: &DbPool, id: i64) -> Result<bool, AppError> 
     Ok(result.rows_affected() > 0)
 }
 
+async fn import_suppliers_csv_impl(
+    pool: &DbPool,
+    file_path: String,
+) -> Result<CsvImportReport, AppError> {
+    let mut reader = csv::ReaderBuilder::new()
+        .trim(csv::Trim::All)
+        .flexible(true)
+        .from_path(&file_path)
+        .map_err(|error| csv_error(&error.to_string()))?;
+
+    let mut report = CsvImportReport::default();
+
+    for (index, row) in reader.deserialize::<SupplierCsvRow>().enumerate() {
+        match row {
+            Ok(row) => {
+                let balance_millieme = parse_optional_i64(row.balance_millieme.as_deref())?;
+
+                let payload = CreateSupplierPayload {
+                    name: row.name,
+                    phone: row.phone,
+                    address: row.address,
+                    balance_millieme,
+                    tax_number: row.tax_number,
+                    notes: row.notes,
+                };
+
+                match create_supplier_impl(pool, payload).await {
+                    Ok(_) => report.imported += 1,
+                    Err(error) => {
+                        report.skipped += 1;
+                        report
+                            .errors
+                            .push(format!("السطر {}: {}", index + 2, error.message_ar));
+                    }
+                }
+            }
+            Err(error) => {
+                report.skipped += 1;
+                report
+                    .errors
+                    .push(format!("السطر {}: {error}", index + 2));
+            }
+        }
+    }
+
+    Ok(report)
+}
+
+fn parse_optional_i64(value: Option<&str>) -> Result<Option<i64>, AppError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        trimmed.parse::<i64>().map(Some).map_err(|_| {
+            AppError::validation("قيمة رقمية غير صحيحة في ملف CSV")
+        })
+    }
+}
+
+fn csv_error(message: &str) -> AppError {
+    AppError::new("CSV_IMPORT_ERROR", "تعذر قراءة ملف CSV", message)
+}
+
 #[tauri::command]
 pub async fn list_suppliers(
     pool: State<'_, DbPool>,
@@ -209,6 +287,14 @@ pub async fn update_supplier(
 #[tauri::command]
 pub async fn delete_supplier(pool: State<'_, DbPool>, id: i64) -> Result<bool, AppError> {
     delete_supplier_impl(&pool, id).await
+}
+
+#[tauri::command]
+pub async fn import_suppliers_csv(
+    pool: State<'_, DbPool>,
+    file_path: String,
+) -> Result<CsvImportReport, AppError> {
+    import_suppliers_csv_impl(&pool, file_path).await
 }
 
 #[cfg(test)]

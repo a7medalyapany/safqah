@@ -4,8 +4,28 @@ use tauri::State;
 use crate::{
     db::DbPool,
     errors::AppError,
+    models::import::CsvImportReport,
     models::item::{Category, CreateItemPayload, Item, UpdateItemPayload},
 };
+
+#[derive(Debug, serde::Deserialize)]
+struct ItemCsvRow {
+    barcode: Option<String>,
+    name_ar: String,
+    name_en: Option<String>,
+    category_id: Option<String>,
+    category_name: Option<String>,
+    buy_price_millieme: Option<String>,
+    sell_price_millieme: Option<String>,
+    color: Option<String>,
+    size: Option<String>,
+    unit: Option<String>,
+    min_stock: Option<String>,
+    current_stock: Option<String>,
+    supplier_id: Option<String>,
+    supplier_name: Option<String>,
+    image_path: Option<String>,
+}
 
 fn normalize_optional_string(value: Option<String>) -> Option<String> {
     value.and_then(|value| {
@@ -16,6 +36,99 @@ fn normalize_optional_string(value: Option<String>) -> Option<String> {
             Some(trimmed)
         }
     })
+}
+
+async fn find_or_create_category_id(pool: &DbPool, name: &str) -> Result<Option<i64>, AppError> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    if let Some((id,)) = sqlx::query_as::<_, (i64,)>("SELECT id FROM categories WHERE name_ar = ?")
+        .bind(trimmed)
+        .fetch_optional(pool)
+        .await?
+    {
+        return Ok(Some(id));
+    }
+
+    let result = sqlx::query("INSERT INTO categories (name_ar) VALUES (?)")
+        .bind(trimmed)
+        .execute(pool)
+        .await?;
+
+    Ok(Some(result.last_insert_rowid()))
+}
+
+async fn find_or_create_supplier_id(pool: &DbPool, name: &str) -> Result<Option<i64>, AppError> {
+    let trimmed = name.trim().to_owned();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+
+    if let Some((id,)) = sqlx::query_as::<_, (i64,)>(
+        "SELECT id FROM suppliers WHERE name = ? AND is_active = 1",
+    )
+    .bind(&trimmed)
+    .fetch_optional(pool)
+    .await?
+    {
+        return Ok(Some(id));
+    }
+
+    let result = sqlx::query("INSERT INTO suppliers (name, is_active) VALUES (?, 1)")
+        .bind(trimmed)
+        .execute(pool)
+        .await?;
+
+    Ok(Some(result.last_insert_rowid()))
+}
+
+fn parse_optional_i64_field(value: Option<&str>) -> Result<Option<i64>, AppError> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        trimmed.parse::<i64>().map(Some).map_err(|_| {
+            AppError::validation("قيمة رقمية غير صحيحة في ملف CSV")
+        })
+    }
+}
+
+async fn resolve_category_id(
+    pool: &DbPool,
+    numeric_value: Option<&str>,
+    named_value: Option<&str>,
+) -> Result<Option<i64>, AppError> {
+    if let Some(id) = parse_optional_i64_field(numeric_value)? {
+        return Ok(Some(id));
+    }
+
+    if let Some(name) = named_value {
+        return find_or_create_category_id(pool, name).await;
+    }
+
+    Ok(None)
+}
+
+async fn resolve_supplier_id(
+    pool: &DbPool,
+    numeric_value: Option<&str>,
+    named_value: Option<&str>,
+) -> Result<Option<i64>, AppError> {
+    if let Some(id) = parse_optional_i64_field(numeric_value)? {
+        return Ok(Some(id));
+    }
+
+    if let Some(name) = named_value {
+        return find_or_create_supplier_id(pool, name).await;
+    }
+
+    Ok(None)
 }
 
 async fn get_item_by_id(pool: &DbPool, id: i64) -> Result<Item, AppError> {
@@ -400,6 +513,87 @@ async fn delete_category_impl(pool: &DbPool, id: i64) -> Result<bool, AppError> 
     Ok(result.rows_affected() > 0)
 }
 
+async fn import_items_csv_impl(pool: &DbPool, file_path: String) -> Result<CsvImportReport, AppError> {
+    let mut reader = csv::ReaderBuilder::new()
+        .trim(csv::Trim::All)
+        .flexible(true)
+        .from_path(&file_path)
+        .map_err(|error| csv_error(&error.to_string()))?;
+
+    let mut report = CsvImportReport::default();
+
+    for (index, row) in reader.deserialize::<ItemCsvRow>().enumerate() {
+        match row {
+            Ok(row) => {
+                let buy_price_millieme = parse_required_i64(row.buy_price_millieme.as_deref())?;
+                let sell_price_millieme = parse_required_i64(row.sell_price_millieme.as_deref())?;
+                let min_stock = parse_optional_i64_field(row.min_stock.as_deref())?;
+                let current_stock = parse_optional_i64_field(row.current_stock.as_deref())?;
+                let category_id = resolve_category_id(
+                    pool,
+                    row.category_id.as_deref(),
+                    row.category_name.as_deref(),
+                )
+                .await?;
+                let supplier_id = resolve_supplier_id(
+                    pool,
+                    row.supplier_id.as_deref(),
+                    row.supplier_name.as_deref(),
+                )
+                .await?;
+
+                let payload = CreateItemPayload {
+                    barcode: row.barcode,
+                    name_ar: row.name_ar,
+                    name_en: row.name_en,
+                    category_id,
+                    buy_price_millieme,
+                    sell_price_millieme,
+                    color: row.color,
+                    size: row.size,
+                    unit: row.unit,
+                    min_stock,
+                    current_stock,
+                    supplier_id,
+                    image_path: row.image_path,
+                };
+
+                match create_item_impl(pool, payload).await {
+                    Ok(_) => report.imported += 1,
+                    Err(error) => {
+                        report.skipped += 1;
+                        report
+                            .errors
+                            .push(format!("السطر {}: {}", index + 2, error.message_ar));
+                    }
+                }
+            }
+            Err(error) => {
+                report.skipped += 1;
+                report
+                    .errors
+                    .push(format!("السطر {}: {error}", index + 2));
+            }
+        }
+    }
+
+    Ok(report)
+}
+
+fn parse_required_i64(value: Option<&str>) -> Result<i64, AppError> {
+    let Some(value) = value else {
+        return Err(AppError::validation("قيمة رقمية مطلوبة في ملف CSV"));
+    };
+
+    value.trim().parse::<i64>().map_err(|_| {
+        AppError::validation("قيمة رقمية غير صحيحة في ملف CSV")
+    })
+}
+
+fn csv_error(message: &str) -> AppError {
+    AppError::new("CSV_IMPORT_ERROR", "تعذر قراءة ملف CSV", message)
+}
+
 #[tauri::command]
 pub async fn list_items(
     pool: State<'_, DbPool>,
@@ -455,6 +649,14 @@ pub async fn create_category(
 #[tauri::command]
 pub async fn delete_category(pool: State<'_, DbPool>, id: i64) -> Result<bool, AppError> {
     delete_category_impl(&pool, id).await
+}
+
+#[tauri::command]
+pub async fn import_items_csv(
+    pool: State<'_, DbPool>,
+    file_path: String,
+) -> Result<CsvImportReport, AppError> {
+    import_items_csv_impl(&pool, file_path).await
 }
 
 #[cfg(test)]
