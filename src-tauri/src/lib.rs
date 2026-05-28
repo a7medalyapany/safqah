@@ -35,6 +35,7 @@ use commands::{
         search_items,
     },
     purchases::{create_purchase_invoice, get_purchase_detail, get_purchase_stats, list_purchases},
+    backup::{list_backups, restore_backup, trigger_backup},
     sessions::{
         close_session, get_active_session, get_session_sales_total_millieme, open_session,
     },
@@ -42,6 +43,7 @@ use commands::{
 };
 use db::DbPool;
 use errors::AppError;
+use services::backup::BackupService;
 use services::print_queue::{new_print_queue, start_print_queue_worker};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -72,12 +74,26 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let pool = tauri::async_runtime::block_on(db::get_pool());
             let print_queue = new_print_queue();
+            let backup_service = BackupService::new();
             app.manage(pool);
             app.manage(print_queue.clone());
+            app.manage(backup_service.clone());
             start_print_queue_worker(print_queue, app.handle().clone());
+            let backup_worker = backup_service.clone();
+
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    tokio::time::sleep(std::time::Duration::from_secs(4 * 60 * 60)).await;
+
+                    if let Err(error) = backup_worker.create_backup() {
+                        eprintln!("Automatic periodic backup failed: {error:?}");
+                    }
+                }
+            });
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -112,6 +128,9 @@ pub fn run() {
             open_session,
             close_session,
             get_session_sales_total_millieme,
+            trigger_backup,
+            list_backups,
+            restore_backup,
             create_sale_invoice,
             create_return,
             list_invoices,

@@ -1,6 +1,11 @@
 use tauri::State;
 
-use crate::{db::DbPool, errors::AppError, models::session::Session};
+use crate::{
+    db::DbPool,
+    errors::AppError,
+    models::session::Session,
+    services::backup::BackupService,
+};
 
 fn normalize_optional_string(value: Option<String>) -> Option<String> {
     value.and_then(|value| {
@@ -163,11 +168,18 @@ pub async fn open_session(
 #[tauri::command]
 pub async fn close_session(
     pool: State<'_, DbPool>,
+    backup_service: State<'_, BackupService>,
     session_id: i64,
     closing_cash_millieme: i64,
     notes: Option<String>,
 ) -> Result<Session, AppError> {
-    close_session_impl(&pool, session_id, closing_cash_millieme, notes).await
+    let session = close_session_impl(&pool, session_id, closing_cash_millieme, notes).await?;
+
+    if let Err(error) = backup_service.create_backup() {
+        eprintln!("Automatic backup after session close failed: {error:?}");
+    }
+
+    Ok(session)
 }
 
 #[tauri::command]
