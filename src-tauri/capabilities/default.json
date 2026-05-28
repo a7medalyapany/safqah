@@ -9,6 +9,7 @@
     "core:webview:allow-print",
     "opener:default",
     "process:allow-restart",
+    "dialog:allow-open",
     "dialog:allow-save",
     "fs:allow-write-text-file"
   ]

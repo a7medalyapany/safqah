@@ -1,8 +1,8 @@
 use encoding_rs::WINDOWS_1256;
-use sqlx::Row;
 use tauri::State;
 
 use crate::{
+    commands::settings::get_setting_value,
     db::DbPool,
     errors::AppError,
     services::print_queue::{enqueue_print_job, send_print_payload, PrintPayload, PrintQueue},
@@ -29,6 +29,15 @@ struct ReceiptItem {
 struct ReceiptSettings {
     shop_name: String,
     shop_address: String,
+    shop_phone: String,
+    default_printer: String,
+    currency_symbol: String,
+    receipt_size: String,
+    show_shop_name_on_receipt: bool,
+    show_shop_address_on_receipt: bool,
+    show_shop_phone_on_receipt: bool,
+    show_thank_you_on_receipt: bool,
+    receipt_thank_you_message: String,
 }
 
 #[tauri::command]
@@ -44,26 +53,39 @@ pub async fn print_receipt(
     let bytes = build_receipt_bytes(&settings, &invoice, &items);
     let payload = PrintPayload {
         bytes,
-        printer_name,
+        printer_name: printer_name.or_else(|| get_default_printer(&settings)),
         invoice_id,
     };
 
-    match send_print_payload(&payload) {
-        Ok(()) => Ok(()),
-        Err(error) => {
-            eprintln!(
-                "initial print failed for invoice {}: {}",
-                invoice_id, error.message_en
-            );
-            enqueue_print_job(&queue, payload)?;
-            Ok(())
-        }
-    }
+    send_or_queue_print(&queue, payload, invoice_id).await
+}
+
+#[tauri::command]
+pub async fn print_test_receipt(
+    pool: State<'_, DbPool>,
+    queue: State<'_, PrintQueue>,
+    printer_name: Option<String>,
+) -> Result<(), AppError> {
+    let settings = fetch_receipt_settings(&pool).await?;
+    let bytes = build_test_receipt_bytes(&settings);
+    let payload = PrintPayload {
+        bytes,
+        printer_name: printer_name.or_else(|| get_default_printer(&settings)),
+        invoice_id: 0,
+    };
+
+    send_or_queue_print(&queue, payload, 0).await
 }
 
 #[tauri::command]
 pub async fn list_printers() -> Result<Vec<String>, AppError> {
-    list_os_printers()
+    match list_os_printers() {
+        Ok(printers) => Ok(printers),
+        Err(error) => {
+            eprintln!("printer discovery failed: {}", error.message_en);
+            Ok(Vec::new())
+        }
+    }
 }
 
 async fn fetch_receipt_invoice(
@@ -107,39 +129,48 @@ async fn fetch_receipt_items(pool: &DbPool, invoice_id: i64) -> Result<Vec<Recei
 }
 
 async fn fetch_receipt_settings(pool: &DbPool) -> Result<ReceiptSettings, AppError> {
-    let has_settings_table: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'settings'",
-    )
-    .fetch_one(pool)
-    .await?;
-
-    if has_settings_table.0 == 0 {
-        return Ok(default_receipt_settings());
-    }
-
-    let rows =
-        sqlx::query("SELECT key, value FROM settings WHERE key IN ('shop_name', 'shop_address')")
-            .fetch_all(pool)
-            .await?;
-
-    let mut settings = default_receipt_settings();
-    for row in rows {
-        let key: String = row.try_get("key")?;
-        let value: String = row.try_get("value")?;
-        match key.as_str() {
-            "shop_name" if !value.trim().is_empty() => settings.shop_name = value,
-            "shop_address" if !value.trim().is_empty() => settings.shop_address = value,
-            _ => {}
-        }
-    }
-
-    Ok(settings)
+    Ok(ReceiptSettings {
+        shop_name: load_setting_text(pool, "shop_name", "صفقة").await?,
+        shop_address: load_setting_text(pool, "shop_address", "العنوان غير محدد").await?,
+        shop_phone: load_setting_text(pool, "shop_phone", "").await?,
+        default_printer: load_setting_text(pool, "default_printer", "").await?,
+        currency_symbol: load_setting_text(pool, "currency_symbol", "ج.م").await?,
+        receipt_size: load_setting_text(pool, "receipt_size", "full").await?,
+        show_shop_name_on_receipt: load_setting_bool(pool, "show_shop_name_on_receipt", true).await?,
+        show_shop_address_on_receipt: load_setting_bool(pool, "show_shop_address_on_receipt", true).await?,
+        show_shop_phone_on_receipt: load_setting_bool(pool, "show_shop_phone_on_receipt", true).await?,
+        show_thank_you_on_receipt: load_setting_bool(pool, "show_thank_you_on_receipt", true).await?,
+        receipt_thank_you_message: load_setting_text(pool, "receipt_thank_you_message", "شكراً لزيارتكم").await?,
+    })
 }
 
-fn default_receipt_settings() -> ReceiptSettings {
-    ReceiptSettings {
-        shop_name: "صفقة".to_owned(),
-        shop_address: "العنوان غير محدد".to_owned(),
+async fn load_setting_text(pool: &DbPool, key: &str, default: &str) -> Result<String, AppError> {
+    Ok(get_setting_value(pool, key)
+        .await?
+        .and_then(|value| {
+            let trimmed = value.trim().to_owned();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+        .unwrap_or_else(|| default.to_owned()))
+}
+
+async fn load_setting_bool(pool: &DbPool, key: &str, default: bool) -> Result<bool, AppError> {
+    Ok(match get_setting_value(pool, key).await? {
+        Some(value) => matches!(value.trim(), "1" | "true" | "yes"),
+        None => default,
+    })
+}
+
+fn get_default_printer(settings: &ReceiptSettings) -> Option<String> {
+    let value = settings.default_printer.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_owned())
     }
 }
 
@@ -153,10 +184,17 @@ fn build_receipt_bytes(
     bytes.extend_from_slice(&[0x1b, b'@']);
     bytes.extend_from_slice(&[0x1b, b't', 22]);
     bytes.extend_from_slice(&[0x1b, b'a', 1]);
-    bytes.extend_from_slice(&[0x1d, b'!', 0x11]);
-    push_text_line(&mut bytes, &settings.shop_name);
+    bytes.extend_from_slice(&[0x1d, b'!', if settings.receipt_size == "mini" { 0x00 } else { 0x11 }]);
+    if settings.show_shop_name_on_receipt {
+        push_text_line(&mut bytes, &settings.shop_name);
+    }
     bytes.extend_from_slice(&[0x1d, b'!', 0x00]);
-    push_text_line(&mut bytes, &settings.shop_address);
+    if settings.show_shop_address_on_receipt {
+        push_text_line(&mut bytes, &settings.shop_address);
+    }
+    if settings.show_shop_phone_on_receipt && !settings.shop_phone.trim().is_empty() {
+        push_text_line(&mut bytes, &settings.shop_phone);
+    }
     push_separator(&mut bytes);
 
     bytes.extend_from_slice(&[0x1b, b'a', 2]);
@@ -182,7 +220,7 @@ fn build_receipt_bytes(
 
     push_text_line(&mut bytes, "الصنف          الكمية  السعر");
     for item in items {
-        push_text_line(&mut bytes, &format_item_line(item));
+        push_text_line(&mut bytes, &format_item_line(item, &settings.currency_symbol));
     }
     push_separator(&mut bytes);
 
@@ -191,26 +229,90 @@ fn build_receipt_bytes(
     push_text_line(
         &mut bytes,
         &format!(
-            "الإجمالي:      {} ج.م",
-            format_receipt_money(invoice.total_millieme)
+            "الإجمالي:      {}",
+            format_receipt_money(invoice.total_millieme, &settings.currency_symbol)
         ),
     );
     push_text_line(
         &mut bytes,
-        &format!("المدفوع:       {} ج.م", format_receipt_money(paid)),
+        &format!(
+            "المدفوع:       {}",
+            format_receipt_money(paid, &settings.currency_symbol)
+        ),
     );
     push_text_line(
         &mut bytes,
-        &format!("الباقي:        {} ج.م", format_receipt_money(remaining)),
+        &format!(
+            "الباقي:        {}",
+            format_receipt_money(remaining, &settings.currency_symbol)
+        ),
     );
     push_separator(&mut bytes);
 
-    bytes.extend_from_slice(&[0x1b, b'a', 1]);
-    push_text_line(&mut bytes, "شكراً لزيارتكم");
-    bytes.extend_from_slice(b"\n\n\n");
+    if settings.show_thank_you_on_receipt {
+        bytes.extend_from_slice(&[0x1b, b'a', 1]);
+        push_text_line(&mut bytes, &settings.receipt_thank_you_message);
+    }
+    bytes.extend_from_slice(if settings.receipt_size == "mini" {
+        b"\n\n"
+    } else {
+        b"\n\n\n"
+    });
     bytes.extend_from_slice(&[0x1d, b'V', 0]);
 
     bytes
+}
+
+fn build_test_receipt_bytes(settings: &ReceiptSettings) -> Vec<u8> {
+    let mut bytes = Vec::new();
+
+    bytes.extend_from_slice(&[0x1b, b'@']);
+    bytes.extend_from_slice(&[0x1b, b't', 22]);
+    bytes.extend_from_slice(&[0x1b, b'a', 1]);
+    bytes.extend_from_slice(&[0x1d, b'!', if settings.receipt_size == "mini" { 0x00 } else { 0x11 }]);
+    if settings.show_shop_name_on_receipt {
+        push_text_line(&mut bytes, &settings.shop_name);
+    }
+    bytes.extend_from_slice(&[0x1d, b'!', 0x00]);
+    if settings.show_shop_address_on_receipt {
+        push_text_line(&mut bytes, &settings.shop_address);
+    }
+    if settings.show_shop_phone_on_receipt && !settings.shop_phone.trim().is_empty() {
+        push_text_line(&mut bytes, &settings.shop_phone);
+    }
+    push_separator(&mut bytes);
+    push_text_line(&mut bytes, "اختبار طباعة");
+    push_text_line(&mut bytes, "تمت الطباعة باستخدام الإعدادات الحالية.");
+    push_separator(&mut bytes);
+    if settings.show_thank_you_on_receipt {
+        push_text_line(&mut bytes, &settings.receipt_thank_you_message);
+    }
+    bytes.extend_from_slice(if settings.receipt_size == "mini" {
+        b"\n\n"
+    } else {
+        b"\n\n\n"
+    });
+    bytes.extend_from_slice(&[0x1d, b'V', 0]);
+
+    bytes
+}
+
+async fn send_or_queue_print(
+    queue: &State<'_, PrintQueue>,
+    payload: PrintPayload,
+    invoice_id: i64,
+) -> Result<(), AppError> {
+    match send_print_payload(&payload) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            eprintln!(
+                "initial print failed for invoice {}: {}",
+                invoice_id, error.message_en
+            );
+            enqueue_print_job(queue.inner(), payload)?;
+            Ok(())
+        }
+    }
 }
 
 fn push_separator(bytes: &mut Vec<u8>) {
@@ -224,19 +326,19 @@ fn push_text_line(bytes: &mut Vec<u8>, text: &str) {
     bytes.push(b'\n');
 }
 
-fn format_item_line(item: &ReceiptItem) -> String {
+fn format_item_line(item: &ReceiptItem, currency_symbol: &str) -> String {
     let name = truncate_chars(&item.item_name_ar, 14);
     format!(
         "{name:<14} {:>5} {:>8}",
         item.qty,
-        format_receipt_money(item.unit_price_millieme)
+        format_receipt_money(item.unit_price_millieme, currency_symbol)
     )
 }
 
-fn format_receipt_money(millieme: i64) -> String {
+fn format_receipt_money(millieme: i64, currency_symbol: &str) -> String {
     let pounds = millieme / 1000;
     let fraction = (millieme.abs() % 1000) / 10;
-    format!("{pounds}.{fraction:02}")
+    format!("{pounds}.{fraction:02} {currency_symbol}")
 }
 
 fn format_receipt_date(value: &str) -> String {
@@ -266,7 +368,6 @@ fn to_arabic_digits(value: &str) -> String {
             '7' => '٧',
             '8' => '٨',
             '9' => '٩',
-            '.' => '٫',
             _ => ch,
         })
         .collect()

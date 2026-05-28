@@ -15,6 +15,10 @@ fn db_path() -> Result<PathBuf, sqlx::Error> {
     Ok(app_dir.join("pos.db"))
 }
 
+pub fn database_file_path() -> Result<PathBuf, sqlx::Error> {
+    db_path()
+}
+
 pub async fn init_db() -> Result<DbPool, sqlx::Error> {
     let path = db_path()?;
 

@@ -4,6 +4,7 @@ use sqlx::{QueryBuilder, Sqlite, Transaction};
 use tauri::State;
 
 use crate::{
+    commands::settings::get_setting_value,
     db::DbPool,
     errors::AppError,
     models::{
@@ -349,6 +350,40 @@ fn sale_status_and_paid(
     }
 }
 
+async fn load_text_setting(pool: &DbPool, key: &str, default: &str) -> Result<String, AppError> {
+    Ok(get_setting_value(pool, key)
+        .await?
+        .and_then(|value| {
+            let trimmed = value.trim().to_owned();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+        .unwrap_or_else(|| default.to_owned()))
+}
+
+async fn load_i64_setting(pool: &DbPool, key: &str, default: i64) -> Result<i64, AppError> {
+    Ok(get_setting_value(pool, key)
+        .await?
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .unwrap_or(default)
+        .max(0))
+}
+
+fn build_document_number(prefix: &str, number: i64) -> String {
+    format!("{}-{:06}", prefix.trim(), number)
+}
+
+fn calculate_tax_millieme(base_millieme: i64, tax_percent: i64) -> i64 {
+    if base_millieme <= 0 || tax_percent <= 0 {
+        0
+    } else {
+        (base_millieme * tax_percent + 50) / 100
+    }
+}
+
 async fn create_sale_invoice_impl(
     pool: &DbPool,
     payload: CreateSaleInvoicePayload,
@@ -385,10 +420,14 @@ async fn create_sale_invoice_impl_tx(
     let (invoice_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM invoices")
         .fetch_one(&mut *tx)
         .await?;
-    let invoice_number = format!("INV-{:06}", invoice_count + 1);
+    let invoice_prefix = load_text_setting(pool, "invoice_prefix", "INV").await?;
+    let tax_percent = load_i64_setting(pool, "tax_percent", 0).await?;
+    let invoice_number = build_document_number(&invoice_prefix, invoice_count + 1);
 
     let subtotal_millieme: i64 = payload.items.iter().map(compute_line_total).sum();
-    let total_millieme = (subtotal_millieme - payload.global_discount_millieme).max(0);
+    let taxable_millieme = (subtotal_millieme - payload.global_discount_millieme).max(0);
+    let tax_millieme = calculate_tax_millieme(taxable_millieme, tax_percent);
+    let total_millieme = taxable_millieme + tax_millieme;
     let payment_method = payload.payment_method.trim().to_owned();
     let (status, paid_millieme) =
         sale_status_and_paid(&payment_method, payload.paid_millieme, total_millieme);
@@ -409,7 +448,7 @@ async fn create_sale_invoice_impl_tx(
           status,
           notes
         )
-        VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(&invoice_number)
@@ -417,6 +456,7 @@ async fn create_sale_invoice_impl_tx(
     .bind(payload.session_id)
     .bind(subtotal_millieme)
     .bind(payload.global_discount_millieme)
+    .bind(tax_millieme)
     .bind(total_millieme)
     .bind(paid_millieme)
     .bind(&payment_method)
@@ -598,7 +638,8 @@ async fn create_return_impl(
     let (return_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM returns")
         .fetch_one(&mut *tx)
         .await?;
-    let return_number = format!("RET-{:06}", return_count + 1);
+    let return_prefix = load_text_setting(pool, "return_prefix", "RET").await?;
+    let return_number = build_document_number(&return_prefix, return_count + 1);
 
     let total_millieme: i64 = payload
         .items

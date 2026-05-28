@@ -1,5 +1,6 @@
 pub mod customer;
 pub mod finance;
+pub mod import;
 pub mod inventory;
 pub mod item;
 pub mod purchase;

@@ -2,6 +2,7 @@ use sqlx::{QueryBuilder, Sqlite, Transaction};
 use tauri::State;
 
 use crate::{
+    commands::settings::get_setting_value,
     db::DbPool,
     errors::AppError,
     models::purchase::{
@@ -34,6 +35,24 @@ fn normalize_optional_string(value: Option<String>) -> Option<String> {
             Some(trimmed)
         }
     })
+}
+
+async fn load_text_setting(pool: &DbPool, key: &str, default: &str) -> Result<String, AppError> {
+    Ok(get_setting_value(pool, key)
+        .await?
+        .and_then(|value| {
+            let trimmed = value.trim().to_owned();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+        .unwrap_or_else(|| default.to_owned()))
+}
+
+fn build_document_number(prefix: &str, number: i64) -> String {
+    format!("{}-{:06}", prefix.trim(), number)
 }
 
 fn item_not_found_error() -> AppError {
@@ -245,7 +264,8 @@ async fn create_purchase_invoice_impl(
         sqlx::query_as("SELECT COUNT(*) FROM purchase_invoices")
             .fetch_one(&mut *tx)
             .await?;
-    let invoice_number = format!("PUR-{:06}", purchase_count + 1);
+    let purchase_prefix = load_text_setting(pool, "purchase_prefix", "PUR").await?;
+    let invoice_number = build_document_number(&purchase_prefix, purchase_count + 1);
 
     let subtotal_millieme: i64 = payload.items.iter().map(compute_line_total).sum();
     let total_millieme = (subtotal_millieme - payload.global_discount_millieme).max(0);
