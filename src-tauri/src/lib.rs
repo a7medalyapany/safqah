@@ -8,6 +8,9 @@ use serde::Serialize;
 use tauri::{Manager, State};
 
 use commands::{
+    auth::{
+        create_user, deactivate_user, get_current_user, list_users, login, logout, update_user,
+    },
     customers::{create_customer, delete_customer, get_customer, list_customers, update_customer},
     finance::{
         create_expense, get_all_deferred_invoices, get_cash_summary, get_customer_ledger,
@@ -80,6 +83,13 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             get_db_info,
+            login,
+            logout,
+            get_current_user,
+            list_users,
+            create_user,
+            update_user,
+            deactivate_user,
             ping,
             force_error,
             list_items,

@@ -5,4 +5,5 @@ pub mod item;
 pub mod purchase;
 pub mod sale;
 pub mod session;
+pub mod user;
 pub mod supplier;

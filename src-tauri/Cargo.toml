@@ -28,3 +28,5 @@ sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate", "chr
 tokio = { version = "1", features = ["full"] }
 dirs = "5"
 encoding_rs = "0.8"
+argon2 = "0.5"
+rand = "0.8"
