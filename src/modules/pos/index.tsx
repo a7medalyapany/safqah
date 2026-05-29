@@ -140,6 +140,8 @@ export default function PosPage() {
   );
   const [successInvoice, setSuccessInvoice] =
     useState<SaleInvoiceSuccess | null>(null);
+  const [whatsappPdfPath, setWhatsappPdfPath] = useState<string | null>(null);
+  const [whatsappLoading, setWhatsappLoading] = useState(false);
 
   const debouncedSearch = useDebouncedValue(search, 150);
   const debouncedCustomerSearch = useDebouncedValue(customerSearch, 150);
@@ -163,6 +165,39 @@ export default function PosPage() {
       toast.success("جاري الطباعة...");
     } catch (error) {
       toast.error(parseAppError(error).message_ar);
+    }
+  };
+
+  const handleSendWhatsapp = async () => {
+    if (!successInvoice) {
+      return;
+    }
+
+    setWhatsappLoading(true);
+
+    try {
+      const pdfPath = await invoke<string>(
+        "generate_invoice_pdf",
+        { invoiceId: successInvoice.id },
+        { toast: false },
+      );
+      setWhatsappPdfPath(pdfPath);
+      toast.success(`تم حفظ الفاتورة في: ${pdfPath}`);
+
+      await invoke(
+        "open_whatsapp_with_invoice",
+        {
+          invoiceId: successInvoice.id,
+          invoiceNumber: successInvoice.invoice_number,
+        },
+        { toast: false },
+      );
+
+      toast.success("تم فتح واتساب، اختر جهة الاتصال ثم أرفق ملف PDF");
+    } catch (error) {
+      toast.error(parseAppError(error).message_ar);
+    } finally {
+      setWhatsappLoading(false);
     }
   };
 
@@ -347,6 +382,8 @@ export default function PosPage() {
     setSelectedCustomer(null);
     setCustomerSearch("");
     setSearch("");
+    setWhatsappLoading(false);
+    setWhatsappPdfPath(null);
     focusSearchInput();
   };
 
@@ -361,6 +398,8 @@ export default function PosPage() {
     setCustomerSearch("");
     setSearch("");
     setSuccessInvoice(null);
+    setWhatsappLoading(false);
+    setWhatsappPdfPath(null);
     focusSearchInput();
   };
 
@@ -924,11 +963,16 @@ export default function PosPage() {
         onOpenChange={(open) => {
           if (!open) {
             setSuccessInvoice(null);
+            setWhatsappLoading(false);
+            setWhatsappPdfPath(null);
             focusSearchInput();
           }
         }}
         onPrint={() => void handlePrintInvoice()}
+        onWhatsapp={() => void handleSendWhatsapp()}
         onNewInvoice={handleNewInvoice}
+        whatsappLoading={whatsappLoading}
+        pdfPath={whatsappPdfPath}
       />
     </>
   );

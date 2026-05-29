@@ -18,6 +18,25 @@ async fn settings_table_exists(pool: &DbPool) -> Result<bool, AppError> {
     Ok(exists.0 > 0)
 }
 
+pub async fn fetch_settings_map(pool: &DbPool) -> Result<HashMap<String, String>, AppError> {
+    if !settings_table_exists(pool).await? {
+        return Ok(HashMap::new());
+    }
+
+    let rows = sqlx::query("SELECT key, value FROM settings")
+        .fetch_all(pool)
+        .await?;
+
+    let mut settings = HashMap::with_capacity(rows.len());
+    for row in rows {
+        let key: String = row.try_get("key")?;
+        let value: String = row.try_get("value")?;
+        settings.insert(key, value);
+    }
+
+    Ok(settings)
+}
+
 pub async fn get_setting_value(pool: &DbPool, key: &str) -> Result<Option<String>, AppError> {
     if !settings_table_exists(pool).await? {
         return Ok(None);
@@ -33,22 +52,7 @@ pub async fn get_setting_value(pool: &DbPool, key: &str) -> Result<Option<String
 
 #[tauri::command]
 pub async fn get_settings(pool: State<'_, DbPool>) -> Result<HashMap<String, String>, AppError> {
-    if !settings_table_exists(&pool).await? {
-        return Ok(HashMap::new());
-    }
-
-    let rows = sqlx::query("SELECT key, value FROM settings")
-        .fetch_all(&*pool)
-        .await?;
-
-    let mut settings = HashMap::with_capacity(rows.len());
-    for row in rows {
-        let key: String = row.try_get("key")?;
-        let value: String = row.try_get("value")?;
-        settings.insert(key, value);
-    }
-
-    Ok(settings)
+    fetch_settings_map(&pool).await
 }
 
 #[tauri::command]

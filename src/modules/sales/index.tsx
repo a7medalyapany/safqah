@@ -35,6 +35,8 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { parseAppError } from "@/modules/items/utils";
+import { PdfPathDisplay } from "@/shared/components/PdfPathDisplay";
+import { WhatsAppIcon } from "@/shared/components/WhatsAppIcon";
 import { formatEGP } from "@/shared/utils/money";
 import { invoke } from "@/shared/utils/invoke";
 
@@ -440,6 +442,13 @@ function InvoiceDetailSheet({
   isLoading: boolean;
 }) {
   const [returnDialogOpen, setReturnDialogOpen] = useState(false);
+  const [whatsappPdfPath, setWhatsappPdfPath] = useState<string | null>(null);
+  const [whatsappLoading, setWhatsappLoading] = useState(false);
+
+  useEffect(() => {
+    setWhatsappPdfPath(null);
+    setWhatsappLoading(false);
+  }, [invoice?.id, open]);
 
   const handlePrint = async () => {
     if (!invoice) {
@@ -455,6 +464,39 @@ function InvoiceDetailSheet({
       toast.success("جاري الطباعة...");
     } catch {
       toast.error("تعذر إرسال أمر الطباعة");
+    }
+  };
+
+  const handleSendWhatsapp = async () => {
+    if (!invoice) {
+      return;
+    }
+
+    setWhatsappLoading(true);
+
+    try {
+      const pdfPath = await invoke<string>(
+        "generate_invoice_pdf",
+        { invoiceId: invoice.id },
+        { toast: false },
+      );
+      setWhatsappPdfPath(pdfPath);
+      toast.success(`تم حفظ الفاتورة في: ${pdfPath}`);
+
+      await invoke(
+        "open_whatsapp_with_invoice",
+        {
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoice_number,
+        },
+        { toast: false },
+      );
+
+      toast.success("تم فتح واتساب، اختر جهة الاتصال ثم أرفق ملف PDF");
+    } catch (error) {
+      toast.error(parseAppError(error).message_ar);
+    } finally {
+      setWhatsappLoading(false);
     }
   };
 
@@ -546,10 +588,26 @@ function InvoiceDetailSheet({
               />
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Button variant="outline" onClick={() => void handlePrint()}>
+            {whatsappPdfPath ? (
+              <PdfPathDisplay pdfPath={whatsappPdfPath} />
+            ) : null}
+
+            <div className="grid gap-2 sm:grid-cols-3">
+              <Button
+                variant="outline"
+                onClick={() => void handlePrint()}
+                disabled={whatsappLoading}
+              >
                 <Printer />
                 طباعة الفاتورة
+              </Button>
+              <Button
+                className="bg-emerald-600 text-white hover:bg-emerald-700 hover:text-white"
+                onClick={() => void handleSendWhatsapp()}
+                disabled={whatsappLoading}
+              >
+                <WhatsAppIcon className="size-4" />
+                {whatsappLoading ? "جارٍ الإرسال..." : "إرسال واتساب"}
               </Button>
               <Button
                 variant="outline"

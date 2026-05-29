@@ -1,10 +1,15 @@
+use std::collections::HashMap;
+
 use encoding_rs::WINDOWS_1256;
 use tauri::State;
 
 use crate::{
+    commands::sales::fetch_invoice_detail,
+    commands::settings::fetch_settings_map,
     commands::settings::get_setting_value,
     db::DbPool,
     errors::AppError,
+    services::invoice_pdf as invoice_pdf_service,
     services::print_queue::{enqueue_print_job, send_print_payload, PrintPayload, PrintQueue},
 };
 
@@ -75,6 +80,41 @@ pub async fn print_test_receipt(
     };
 
     send_or_queue_print(&queue, payload, 0).await
+}
+
+#[tauri::command]
+pub async fn generate_invoice_pdf(
+    pool: State<'_, DbPool>,
+    invoice_id: i64,
+) -> Result<String, AppError> {
+    let invoice = fetch_invoice_detail(&pool, invoice_id).await?;
+    let mut settings = fetch_settings_map(&pool).await?;
+    inject_customer_balance(&pool, &invoice, &mut settings).await?;
+    let path = invoice_pdf_service::generate_invoice_pdf(&invoice, &settings)?;
+
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn open_whatsapp_with_invoice(
+    pool: State<'_, DbPool>,
+    invoice_id: i64,
+    invoice_number: String,
+) -> Result<bool, AppError> {
+    let invoice = fetch_invoice_detail(&pool, invoice_id).await?;
+    let mut settings = fetch_settings_map(&pool).await?;
+    inject_customer_balance(&pool, &invoice, &mut settings).await?;
+    let url = build_whatsapp_url(&settings, &invoice, &invoice_number);
+
+    tauri_plugin_opener::open_url(url, None::<&str>).map_err(|error| {
+        AppError::new(
+            "OPEN_URL_FAILED",
+            "تعذر فتح واتساب",
+            &format!("Failed to open WhatsApp URL: {error}"),
+        )
+    })?;
+
+    Ok(true)
 }
 
 #[tauri::command]
@@ -295,6 +335,150 @@ fn build_test_receipt_bytes(settings: &ReceiptSettings) -> Vec<u8> {
     bytes.extend_from_slice(&[0x1d, b'V', 0]);
 
     bytes
+}
+
+async fn inject_customer_balance(
+    pool: &DbPool,
+    invoice: &crate::models::sale::InvoiceDetail,
+    settings: &mut HashMap<String, String>,
+) -> Result<(), AppError> {
+    let Some(customer_id) = invoice.customer_id else {
+        return Ok(());
+    };
+
+    let balance: Option<(i64,)> = sqlx::query_as("SELECT balance_millieme FROM customers WHERE id = ?")
+        .bind(customer_id)
+        .fetch_optional(pool)
+        .await?;
+
+    if let Some((balance_millieme,)) = balance {
+        settings.insert(
+            format!("customer_balance_{customer_id}"),
+            balance_millieme.to_string(),
+        );
+    }
+
+    Ok(())
+}
+
+fn build_whatsapp_url(
+    settings: &HashMap<String, String>,
+    invoice: &crate::models::sale::InvoiceDetail,
+    invoice_number: &str,
+) -> String {
+    let shop_name = setting_text(settings, "shop_name", "صفقة");
+    let thank_you_message = setting_text(
+        settings,
+        "thank_you_message",
+        "شكراً لزيارتكم — نتطلع لخدمتكم مجدداً",
+    );
+
+    let items_list = invoice
+        .items
+        .iter()
+        .map(|item| {
+            format!(
+                "• {} × {} = {} جنيه",
+                item.item_name_ar,
+                item.qty,
+                format_money_plain(item.total_millieme)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let payment_method = payment_method_arabic(&invoice.payment_method);
+    let status = status_arabic(&invoice.status);
+    let balance_line = customer_balance_line(settings, invoice);
+
+    let mut message = format!(
+        "🧾 فاتورة من {shop_name}\n\
+         رقم الفاتورة: {invoice_number}\n\
+         ──────────────\n\
+         {items_list}\n\
+         ──────────────\n\
+         الإجمالي: {total} جنيه\n\
+         المدفوع: {paid} جنيه\n\
+         طريقة الدفع: {method}\n\
+         الحالة: {status}",
+        total = format_money_plain(invoice.total_millieme),
+        paid = format_money_plain(invoice.paid_millieme),
+        method = payment_method,
+        status = status,
+    );
+
+    if !balance_line.is_empty() {
+        message.push('\n');
+        message.push_str(&balance_line);
+    }
+
+    message.push_str("\n──────────────\n");
+    message.push_str(&thank_you_message);
+
+    format!("https://wa.me/?text={}", urlencoding::encode(&message))
+}
+
+fn customer_balance_line(
+    settings: &HashMap<String, String>,
+    invoice: &crate::models::sale::InvoiceDetail,
+) -> String {
+    let Some(customer_id) = invoice.customer_id else {
+        return String::new();
+    };
+
+    let Some(balance_value) = settings.get(&format!("customer_balance_{customer_id}")) else {
+        return String::new();
+    };
+
+    let Ok(balance_millieme) = balance_value.trim().parse::<i64>() else {
+        return String::new();
+    };
+
+    if balance_millieme > 0 {
+        format!(
+            "💳 رصيد مستحق: {} جنيه",
+            format_money_plain(balance_millieme)
+        )
+    } else if balance_millieme < 0 {
+        format!(
+            "💚 رصيد لصالحك: {} جنيه",
+            format_money_plain(balance_millieme.abs())
+        )
+    } else {
+        String::new()
+    }
+}
+
+fn setting_text(settings: &HashMap<String, String>, key: &str, default: &str) -> String {
+    settings
+        .get(key)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default)
+        .to_owned()
+}
+
+fn payment_method_arabic(method: &str) -> &'static str {
+    match method {
+        "cash" => "نقدي",
+        "card" => "فيزا/كارت",
+        "deferred" => "آجل",
+        "split" => "دفع مختلط",
+        _ => "غير محددة",
+    }
+}
+
+fn status_arabic(status: &str) -> &'static str {
+    match status {
+        "paid" => "مدفوع ✓",
+        "deferred" => "آجل",
+        "partial" => "مدفوع جزئياً",
+        _ => "غير محددة",
+    }
+}
+
+fn format_money_plain(millieme: i64) -> String {
+    format!("{:.2}", millieme as f64 / 1000.0)
 }
 
 async fn send_or_queue_print(
