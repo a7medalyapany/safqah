@@ -8,9 +8,12 @@ import {
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Banknote,
+  CheckCircle2,
   Clock3,
   Eye,
+  Info,
   PlusCircle,
   Printer,
   ReceiptText,
@@ -40,6 +43,12 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { parseAppError } from "@/modules/items/utils";
 import type { Category, Item } from "@/modules/items/types";
@@ -107,7 +116,22 @@ type DraftPurchaseItem = {
   unitCost: string;
   suggestedSellPrice: string;
   currentSellPriceMillieme: number;
+  lastPurchaseCostMillieme: number | null;
+  lastPurchaseDate: string | null;
   isNew: boolean;
+};
+
+type ItemPurchaseHistory = {
+  item_id: number;
+  name_ar: string;
+  current_buy_price_millieme: number;
+  current_sell_price_millieme: number;
+  last_purchase_date: string | null;
+  last_purchase_cost_millieme: number | null;
+  last_purchase_qty: number | null;
+  last_supplier_name: string | null;
+  purchase_count: number;
+  avg_cost_millieme: number | null;
 };
 
 type PriceSuggestion = {
@@ -448,6 +472,15 @@ function PurchaseFormDialog({
   const [tab, setTab] = useState<"existing" | "new">("existing");
   const [search, setSearch] = useState("");
   const [selectedItems, setSelectedItems] = useState<DraftPurchaseItem[]>([]);
+  const [selectedHistoryItem, setSelectedHistoryItem] = useState<Item | null>(
+    null,
+  );
+  const [historyByItemId, setHistoryByItemId] = useState<
+    Record<number, ItemPurchaseHistory>
+  >({});
+  const [historyLoadingItemId, setHistoryLoadingItemId] = useState<
+    number | null
+  >(null);
   const [discount, setDiscount] = useState("");
   const [paid, setPaid] = useState("");
   const [newItemValues, setNewItemValues] = useState({
@@ -461,6 +494,7 @@ function PurchaseFormDialog({
 
   const deferredSearch = useDeferredValue(search);
   const pendingSuggestionsRef = useRef<PriceSuggestion[]>([]);
+  const historyRequestIdRef = useRef(0);
 
   useEffect(() => {
     if (!open) {
@@ -473,6 +507,9 @@ function PurchaseFormDialog({
     setTab("existing");
     setSearch("");
     setSelectedItems([]);
+    setSelectedHistoryItem(null);
+    setHistoryByItemId({});
+    setHistoryLoadingItemId(null);
     setDiscount("");
     setPaid("");
     setNewItemValues({
@@ -629,6 +666,8 @@ function PurchaseFormDialog({
         suggestedSellPrice:
           newItemValues.sellPrice || toMoneyInput(item.sell_price_millieme),
         currentSellPriceMillieme: item.sell_price_millieme,
+        lastPurchaseCostMillieme: null,
+        lastPurchaseDate: null,
         isNew: true,
       });
 
@@ -665,24 +704,81 @@ function PurchaseFormDialog({
     });
   };
 
-  const handleSelectItem = (item: Item) => {
-    addOrUpdateItem({
-      itemId: item.id,
-      itemName: item.name_ar,
-      qty: "1",
-      unitCost: toMoneyInput(item.buy_price_millieme),
-      suggestedSellPrice: "",
-      currentSellPriceMillieme: item.sell_price_millieme,
-      isNew: false,
-    });
+  const handleSelectItem = async (item: Item) => {
+    const requestId = historyRequestIdRef.current + 1;
+    historyRequestIdRef.current = requestId;
+
+    setSelectedHistoryItem(item);
+    setHistoryLoadingItemId(item.id);
     setSearch("");
+
+    try {
+      const history = await invoke<ItemPurchaseHistory>(
+        "get_item_purchase_history",
+        {
+          itemId: item.id,
+        },
+      );
+
+      if (historyRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setHistoryByItemId((current) => ({
+        ...current,
+        [item.id]: history,
+      }));
+
+      addOrUpdateItem({
+        itemId: item.id,
+        itemName: item.name_ar,
+        qty: String(Math.max(history.last_purchase_qty ?? 1, 1)),
+        unitCost: toMoneyInput(
+          history.last_purchase_cost_millieme ??
+            history.current_buy_price_millieme,
+        ),
+        suggestedSellPrice: toMoneyInput(history.current_sell_price_millieme),
+        currentSellPriceMillieme: history.current_sell_price_millieme,
+        lastPurchaseCostMillieme: history.last_purchase_cost_millieme,
+        lastPurchaseDate: history.last_purchase_date,
+        isNew: false,
+      });
+    } catch (error) {
+      const appError = parseAppError(error);
+      toast.error(appError.message_ar);
+
+      if (historyRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      addOrUpdateItem({
+        itemId: item.id,
+        itemName: item.name_ar,
+        qty: "1",
+        unitCost: toMoneyInput(item.buy_price_millieme),
+        suggestedSellPrice: toMoneyInput(item.sell_price_millieme),
+        currentSellPriceMillieme: item.sell_price_millieme,
+        lastPurchaseCostMillieme: null,
+        lastPurchaseDate: null,
+        isNew: false,
+      });
+    } finally {
+      if (historyRequestIdRef.current === requestId) {
+        setHistoryLoadingItemId(null);
+      }
+    }
   };
 
   const updateItemField = (
     itemId: number,
     field: keyof Omit<
       DraftPurchaseItem,
-      "itemId" | "itemName" | "currentSellPriceMillieme"
+      | "itemId"
+      | "itemName"
+      | "currentSellPriceMillieme"
+      | "lastPurchaseCostMillieme"
+      | "lastPurchaseDate"
+      | "isNew"
     >,
     value: string,
   ) => {
@@ -714,6 +810,9 @@ function PurchaseFormDialog({
 
   const canSubmit =
     selectedItems.length > 0 && !createPurchaseMutation.isPending;
+  const selectedItemHistory = selectedHistoryItem
+    ? (historyByItemId[selectedHistoryItem.id] ?? null)
+    : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -844,6 +943,14 @@ function PurchaseFormDialog({
                     ))}
                   </div>
                 )}
+
+                {selectedHistoryItem ? (
+                  <ItemPurchaseHistoryPanel
+                    isLoading={historyLoadingItemId === selectedHistoryItem.id}
+                    history={selectedItemHistory}
+                    fallbackItemName={selectedHistoryItem.name_ar}
+                  />
+                ) : null}
               </div>
             ) : (
               <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -956,79 +1063,149 @@ function PurchaseFormDialog({
                     </td>
                   </tr>
                 ) : (
-                  selectedItems.map((item) => (
-                    <tr key={item.itemId} className="border-t">
-                      <TableCell className="font-medium text-foreground">
-                        {item.itemName}
-                      </TableCell>
-                      <TableCell>
-                        <Input
-                          type="number"
-                          min={1}
-                          value={item.qty}
-                          onChange={(event) =>
-                            updateItemField(
-                              item.itemId,
-                              "qty",
-                              event.target.value,
-                            )
-                          }
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Input
-                          type="number"
-                          step="0.001"
-                          min={0}
-                          value={item.unitCost}
-                          onChange={(event) =>
-                            updateItemField(
-                              item.itemId,
-                              "unitCost",
-                              event.target.value,
-                            )
-                          }
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <Input
-                          type="number"
-                          step="0.001"
-                          min={0}
-                          value={item.suggestedSellPrice}
-                          onChange={(event) =>
-                            updateItemField(
-                              item.itemId,
-                              "suggestedSellPrice",
-                              event.target.value,
-                            )
-                          }
-                          placeholder="اختياري"
-                        />
-                      </TableCell>
-                      <TableCell>
-                        {formatEGP(
-                          safeToMillieme(item.unitCost) *
-                            parseInteger(item.qty),
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          onClick={() =>
-                            setSelectedItems((current) =>
-                              current.filter(
-                                (entry) => entry.itemId !== item.itemId,
-                              ),
-                            )
-                          }
-                        >
-                          <X />
-                        </Button>
-                      </TableCell>
-                    </tr>
-                  ))
+                  <TooltipProvider>
+                    {selectedItems.map((item) => {
+                      const unitCostMillieme = safeToMillieme(item.unitCost);
+                      const sellPriceMillieme = item.suggestedSellPrice.trim()
+                        ? safeToMillieme(item.suggestedSellPrice)
+                        : item.currentSellPriceMillieme;
+                      const margin = calculateProfitMargin(
+                        unitCostMillieme,
+                        sellPriceMillieme,
+                      );
+
+                      return (
+                        <tr key={item.itemId} className="border-t">
+                          <TableCell className="font-medium text-foreground">
+                            <div className="flex items-center justify-between gap-2">
+                              <span>{item.itemName}</span>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <button
+                                    type="button"
+                                    className="inline-flex text-muted-foreground transition hover:text-foreground"
+                                    aria-label="معلومة آخر شراء"
+                                  >
+                                    <Info className="size-4" />
+                                  </button>
+                                </TooltipTrigger>
+                                <TooltipContent>
+                                  {item.lastPurchaseCostMillieme !== null &&
+                                  item.lastPurchaseDate ? (
+                                    <p>
+                                      آخر شراء:{" "}
+                                      {formatEGP(item.lastPurchaseCostMillieme)}{" "}
+                                      — {formatDateOnly(item.lastPurchaseDate)}
+                                    </p>
+                                  ) : (
+                                    <p>لا يوجد سجل شراء سابق لهذا الصنف.</p>
+                                  )}
+                                </TooltipContent>
+                              </Tooltip>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              min={1}
+                              value={item.qty}
+                              onChange={(event) =>
+                                updateItemField(
+                                  item.itemId,
+                                  "qty",
+                                  event.target.value,
+                                )
+                              }
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <div className="space-y-1.5">
+                              <Input
+                                type="number"
+                                step="0.001"
+                                min={0}
+                                value={item.unitCost}
+                                onChange={(event) =>
+                                  updateItemField(
+                                    item.itemId,
+                                    "unitCost",
+                                    event.target.value,
+                                  )
+                                }
+                              />
+
+                              {item.lastPurchaseCostMillieme !== null ? (
+                                unitCostMillieme >
+                                item.lastPurchaseCostMillieme ? (
+                                  <p className="flex items-center gap-1 text-xs text-amber-700">
+                                    <AlertTriangle className="size-3.5" />
+                                    السعر الجديد أعلى من آخر سعر شراء
+                                  </p>
+                                ) : unitCostMillieme <
+                                  item.lastPurchaseCostMillieme ? (
+                                  <p className="flex items-center gap-1 text-xs text-emerald-700">
+                                    <CheckCircle2 className="size-3.5" />
+                                    السعر الجديد أقل من آخر سعر شراء
+                                  </p>
+                                ) : null
+                              ) : null}
+
+                              <p
+                                className={cn(
+                                  "text-xs",
+                                  margin === null
+                                    ? "text-muted-foreground"
+                                    : margin > 20
+                                      ? "text-emerald-700"
+                                      : margin >= 10
+                                        ? "text-amber-700"
+                                        : "text-red-700",
+                                )}
+                              >
+                                هامش الربح المتوقع: {formatMarginLabel(margin)}
+                              </p>
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              step="0.001"
+                              min={0}
+                              value={item.suggestedSellPrice}
+                              onChange={(event) =>
+                                updateItemField(
+                                  item.itemId,
+                                  "suggestedSellPrice",
+                                  event.target.value,
+                                )
+                              }
+                              placeholder="اختياري"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            {formatEGP(
+                              unitCostMillieme * parseInteger(item.qty),
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              onClick={() =>
+                                setSelectedItems((current) =>
+                                  current.filter(
+                                    (entry) => entry.itemId !== item.itemId,
+                                  ),
+                                )
+                              }
+                            >
+                              <X />
+                            </Button>
+                          </TableCell>
+                        </tr>
+                      );
+                    })}
+                  </TooltipProvider>
                 )}
               </tbody>
             </table>
@@ -1214,6 +1391,107 @@ function PurchaseDetailSheet({
         )}
       </SheetContent>
     </Sheet>
+  );
+}
+
+function ItemPurchaseHistoryPanel({
+  isLoading,
+  history,
+  fallbackItemName,
+}: {
+  isLoading: boolean;
+  history: ItemPurchaseHistory | null;
+  fallbackItemName: string;
+}) {
+  if (isLoading) {
+    return (
+      <div className="rounded-xl border bg-background p-4">
+        <div className="space-y-2">
+          <Skeleton className="h-5 w-48" />
+          <Skeleton className="h-4 w-56" />
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-4 w-52" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!history) {
+    return null;
+  }
+
+  const hasHistory = history.purchase_count > 0;
+  const baseCost =
+    history.last_purchase_cost_millieme ?? history.current_buy_price_millieme;
+  const currentMargin = calculateProfitMargin(
+    baseCost,
+    history.current_sell_price_millieme,
+  );
+
+  return (
+    <div className="rounded-xl border bg-background p-4 text-sm">
+      <p className="font-semibold">
+        سجل الشراء — {history.name_ar || fallbackItemName}
+      </p>
+      <div className="mt-3 space-y-2">
+        {hasHistory ? (
+          <>
+            <SummaryRow
+              label="آخر سعر شراء"
+              value={`${formatEGP(history.last_purchase_cost_millieme ?? 0)}${history.last_purchase_date ? ` (${formatDateOnly(history.last_purchase_date)})` : ""}`}
+            />
+            <SummaryRow
+              label="من مورد"
+              value={history.last_supplier_name || "غير محدد"}
+            />
+            <SummaryRow
+              label="آخر كمية"
+              value={`${history.last_purchase_qty ?? 0} قطعة`}
+            />
+          </>
+        ) : (
+          <p className="rounded-md bg-muted/40 px-3 py-2 text-muted-foreground">
+            لم يتم شراء هذا الصنف من قبل — يمكنك تحديد السعر يدوياً
+          </p>
+        )}
+
+        <Separator className="my-2" />
+
+        <SummaryRow
+          label="متوسط سعر الشراء"
+          value={
+            history.avg_cost_millieme !== null
+              ? `${formatEGP(history.avg_cost_millieme)} (من ${history.purchase_count} عمليات شراء)`
+              : "لا يوجد"
+          }
+        />
+
+        <Separator className="my-2" />
+
+        <SummaryRow
+          label="سعر البيع الحالي"
+          value={formatEGP(history.current_sell_price_millieme)}
+        />
+        <SummaryRow
+          label="هامش الربح الحالي"
+          value={
+            <span
+              className={cn(
+                currentMargin === null
+                  ? "text-muted-foreground"
+                  : currentMargin > 20
+                    ? "text-emerald-700"
+                    : currentMargin >= 10
+                      ? "text-amber-700"
+                      : "text-red-700",
+              )}
+            >
+              {formatMarginLabel(currentMargin)}
+            </span>
+          }
+        />
+      </div>
+    </div>
   );
 }
 
@@ -1457,6 +1735,35 @@ function formatDate(value: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(date);
+}
+
+function formatDateOnly(value: string) {
+  const normalized = value.includes("T") ? value : value.replace(" ", "T");
+  const date = new Date(normalized);
+
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("ar-EG", {
+    dateStyle: "short",
+  }).format(date);
+}
+
+function calculateProfitMargin(costMillieme: number, sellMillieme: number) {
+  if (sellMillieme <= 0) {
+    return null;
+  }
+
+  return ((sellMillieme - costMillieme) / sellMillieme) * 100;
+}
+
+function formatMarginLabel(margin: number | null) {
+  if (margin === null || Number.isNaN(margin)) {
+    return "—";
+  }
+
+  return `${margin.toFixed(1)}%`;
 }
 
 function safeToMillieme(value: string) {
