@@ -224,6 +224,7 @@ async fn get_invoice_detail_impl(
           customers.name AS customer_name,
           invoices.session_id,
           invoices.cashier_id,
+                    users.name AS cashier_name,
           invoices.subtotal_millieme,
           invoices.discount_millieme,
           invoices.tax_millieme,
@@ -235,6 +236,7 @@ async fn get_invoice_detail_impl(
           invoices.created_at
         FROM invoices
         LEFT JOIN customers ON customers.id = invoices.customer_id
+        LEFT JOIN users ON users.id = invoices.cashier_id
         WHERE invoices.id = ?
         "#,
     )
@@ -269,6 +271,13 @@ async fn get_invoice_detail_impl(
     .await?;
 
     Ok(invoice.with_items(items))
+}
+
+pub(crate) async fn fetch_invoice_detail(
+    pool: &DbPool,
+    invoice_id: i64,
+) -> Result<InvoiceDetail, AppError> {
+    get_invoice_detail_impl(pool, invoice_id).await
 }
 
 async fn get_invoice_stats_impl(pool: &DbPool) -> Result<InvoiceStats, AppError> {
@@ -765,7 +774,7 @@ pub async fn get_invoice_detail(
     pool: State<'_, DbPool>,
     invoice_id: i64,
 ) -> Result<InvoiceDetail, AppError> {
-    get_invoice_detail_impl(&pool, invoice_id).await
+    fetch_invoice_detail(&pool, invoice_id).await
 }
 
 #[tauri::command]
