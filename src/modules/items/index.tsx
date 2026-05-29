@@ -4,6 +4,7 @@ import {
   ArrowDown,
   ArrowUp,
   BadgePlus,
+  Barcode,
   Boxes,
   CircleAlert,
   ClipboardCheck,
@@ -31,6 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { ItemFormDialog } from "@/modules/items/ItemFormDialog";
 import { DeleteConfirmDialog } from "@/modules/items/DeleteConfirmDialog";
+import { PrintBarcodeDialog } from "@/modules/items/PrintBarcodeDialog";
 import { StockAdjustmentDialog } from "@/modules/items/StockAdjustmentDialog";
 import { CategoryManagerDialog } from "@/modules/items/categories";
 import type { Category, Item, StockMovement } from "@/modules/items/types";
@@ -46,6 +48,7 @@ export default function ItemsPage() {
   const [deletingItem, setDeletingItem] = useState<Item | null>(null);
   const [historyItem, setHistoryItem] = useState<Item | null>(null);
   const [adjustingItem, setAdjustingItem] = useState<Item | null>(null);
+  const [printingItem, setPrintingItem] = useState<Item | null>(null);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isCategoryManagerOpen, setIsCategoryManagerOpen] = useState(false);
   const isScannerEnabled =
@@ -54,7 +57,8 @@ export default function ItemsPage() {
     !deletingItem &&
     !isCategoryManagerOpen &&
     !historyItem &&
-    !adjustingItem;
+    !adjustingItem &&
+    !printingItem;
 
   const deferredSearch = useDeferredValue(search);
   const selectedCategoryId = categoryId ? Number(categoryId) : null;
@@ -269,6 +273,14 @@ export default function ItemsPage() {
                               <Button
                                 variant="ghost"
                                 size="icon-sm"
+                                onClick={() => setPrintingItem(item)}
+                                aria-label="طباعة باركود"
+                              >
+                                <Barcode />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="icon-sm"
                                 onClick={() => setEditingItem(item)}
                                 aria-label="تعديل الصنف"
                               >
@@ -357,6 +369,21 @@ export default function ItemsPage() {
           }
         }}
         item={adjustingItem}
+      />
+
+      <PrintBarcodeDialog
+        item={printingItem}
+        open={Boolean(printingItem)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPrintingItem(null);
+          }
+        }}
+        onEditItem={() => {
+          if (printingItem) {
+            setEditingItem(printingItem);
+          }
+        }}
       />
     </div>
   );

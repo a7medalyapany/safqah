@@ -1,4 +1,5 @@
 import {
+  Barcode,
   FilePlus2,
   PackagePlus,
   Receipt,
@@ -11,16 +12,25 @@ import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 
-export function QuickActions({ onAddItem }: { onAddItem: () => void }) {
+export function QuickActions({
+  onAddItem,
+  onBarcodeLabels,
+}: {
+  onAddItem: () => void;
+  onBarcodeLabels: () => void;
+}) {
   return (
     <section className="space-y-3">
       <h2 className="text-xl font-semibold">إجراءات سريعة</h2>
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7">
         <QuickAction to="/pos" icon={<Receipt />}>
           فاتورة جديدة
         </QuickAction>
         <QuickAction icon={<PackagePlus />} onClick={onAddItem}>
           إضافة صنف
+        </QuickAction>
+        <QuickAction icon={<Barcode />} onClick={onBarcodeLabels}>
+          طباعة باركود
         </QuickAction>
         <QuickAction to="/purchases" icon={<FilePlus2 />}>
           فاتورة شراء
@@ -68,7 +78,11 @@ function QuickAction({
   }
 
   return (
-    <Button variant="outline" className="h-14 justify-start gap-3" onClick={onClick}>
+    <Button
+      variant="outline"
+      className="h-14 justify-start gap-3"
+      onClick={onClick}
+    >
       {content}
     </Button>
   );
