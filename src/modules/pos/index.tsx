@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
 import { Search, Trash2, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -12,13 +11,17 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { parseAppError } from "@/modules/items/utils";
-import { InvoiceSuccessDialog, type SaleInvoiceSuccess } from "@/modules/pos/InvoiceSuccessDialog";
+import {
+  InvoiceSuccessDialog,
+  type SaleInvoiceSuccess,
+} from "@/modules/pos/InvoiceSuccessDialog";
 import type { Category, Item } from "@/modules/items/types";
 import type { Customer } from "@/modules/parties/types";
 import { useBarcodeScanner } from "@/shared/hooks/useBarcodeScanner";
 import { formatEGP, toMillieme } from "@/shared/utils/money";
 import { type CartItem, useCartStore } from "@/store/cartSlice";
 import { useSessionStore } from "@/store/sessionSlice";
+import { invoke } from "@/shared/utils/invoke";
 
 type PaymentMethod = "cash" | "card" | "deferred" | "split";
 
@@ -100,13 +103,17 @@ export default function PosPage() {
   const cartItems = useCartStore((state) => state.items);
   const customerId = useCartStore((state) => state.customerId);
   const customerName = useCartStore((state) => state.customerName);
-  const globalDiscountMillieme = useCartStore((state) => state.globalDiscountMillieme);
+  const globalDiscountMillieme = useCartStore(
+    (state) => state.globalDiscountMillieme,
+  );
   const paymentMethod = useCartStore((state) => state.paymentMethod);
   const paidCashMillieme = useCartStore((state) => state.paidCashMillieme);
   const paidCardMillieme = useCartStore((state) => state.paidCardMillieme);
   const notes = useCartStore((state) => state.notes);
   const subtotalMillieme = useCartStore((state) => state.subtotalMillieme());
-  const totalDiscountMillieme = useCartStore((state) => state.totalDiscountMillieme());
+  const totalDiscountMillieme = useCartStore((state) =>
+    state.totalDiscountMillieme(),
+  );
   const totalMillieme = useCartStore((state) => state.totalMillieme());
   const changeMillieme = useCartStore((state) => state.changeMillieme());
 
@@ -124,10 +131,15 @@ export default function PosPage() {
   const clearCart = useCartStore((state) => state.clearCart);
 
   const [search, setSearch] = useState("");
-  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(null);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<number | null>(
+    null,
+  );
   const [customerSearch, setCustomerSearch] = useState("");
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [successInvoice, setSuccessInvoice] = useState<SaleInvoiceSuccess | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(
+    null,
+  );
+  const [successInvoice, setSuccessInvoice] =
+    useState<SaleInvoiceSuccess | null>(null);
 
   const debouncedSearch = useDebouncedValue(search, 150);
   const debouncedCustomerSearch = useDebouncedValue(customerSearch, 150);
@@ -143,7 +155,11 @@ export default function PosPage() {
     }
 
     try {
-      await invoke("print_receipt", { invoiceId: successInvoice.id });
+      await invoke(
+        "print_receipt",
+        { invoiceId: successInvoice.id },
+        { toast: false },
+      );
       toast.success("جاري الطباعة...");
     } catch (error) {
       toast.error(parseAppError(error).message_ar);
@@ -163,7 +179,11 @@ export default function PosPage() {
   }, []);
 
   useEffect(() => {
-    if (paymentMethod === "cash" && paidCashMillieme === 0 && totalMillieme > 0) {
+    if (
+      paymentMethod === "cash" &&
+      paidCashMillieme === 0 &&
+      totalMillieme > 0
+    ) {
       setPaidCashAmount(totalMillieme);
     }
   }, [paidCashMillieme, paymentMethod, setPaidCashAmount, totalMillieme]);
@@ -175,43 +195,53 @@ export default function PosPage() {
     }
   }, [customerId]);
 
-  useBarcodeScanner(
-    (barcode) => {
-      setSearch(barcode);
-      focusSearchInput();
-    },
-    !successInvoice,
-  );
+  useBarcodeScanner((barcode) => {
+    setSearch(barcode);
+    focusSearchInput();
+  }, !successInvoice);
 
   const categoriesQuery = useQuery({
     queryKey: ["categories"],
-    queryFn: () => invoke<Category[]>("list_categories"),
+    queryFn: () =>
+      invoke<Category[]>("list_categories", undefined, { toast: false }),
     staleTime: 5 * 60 * 1000,
   });
 
   const itemsQuery = useQuery({
     queryKey: ["pos-items", debouncedSearch, selectedCategoryId],
     queryFn: () =>
-      invoke<Item[]>("search_items", {
-        query: debouncedSearch.trim() || null,
-        categoryId: selectedCategoryId,
-      }),
+      invoke<Item[]>(
+        "search_items",
+        {
+          query: debouncedSearch.trim() || null,
+          categoryId: selectedCategoryId,
+        },
+        { toast: false },
+      ),
     staleTime: 5 * 60 * 1000,
   });
 
   const customersQuery = useQuery({
     queryKey: ["customers", debouncedCustomerSearch],
     queryFn: () =>
-      invoke<Customer[]>("list_customers", {
-        search: debouncedCustomerSearch.trim() || null,
-      }),
+      invoke<Customer[]>(
+        "list_customers",
+        {
+          search: debouncedCustomerSearch.trim() || null,
+        },
+        { toast: false },
+      ),
     enabled: debouncedCustomerSearch.trim().length > 0,
     staleTime: 5 * 60 * 1000,
   });
 
   const createSaleMutation = useMutation({
     mutationFn: (payload: CreateSaleInvoicePayload) =>
-      invoke<SaleInvoiceSuccess>("create_sale_invoice", { payload }),
+      invoke<SaleInvoiceSuccess>(
+        "create_sale_invoice",
+        { payload },
+        { toast: false },
+      ),
     onSuccess: async (invoice) => {
       setSuccessInvoice(invoice);
       await Promise.all([
@@ -228,7 +258,8 @@ export default function PosPage() {
   const items = itemsQuery.data ?? [];
   const categories = categoriesQuery.data ?? [];
   const customerResults = customersQuery.data ?? [];
-  const selectedCustomerBalanceMillieme = selectedCustomer?.balance_millieme ?? 0;
+  const selectedCustomerBalanceMillieme =
+    selectedCustomer?.balance_millieme ?? 0;
   const deferredPaidNowMillieme =
     paymentMethod === "deferred" ? paidCashMillieme + paidCardMillieme : 0;
   const deferredRemainingMillieme =
@@ -354,7 +385,10 @@ export default function PosPage() {
       return;
     }
 
-    if (paymentMethod === "deferred" && paidCashMillieme + paidCardMillieme > totalMillieme) {
+    if (
+      paymentMethod === "deferred" &&
+      paidCashMillieme + paidCardMillieme > totalMillieme
+    ) {
       toast.error("المبلغ المدفوع أكبر من إجمالي الفاتورة");
       return;
     }
@@ -392,7 +426,7 @@ export default function PosPage() {
             <CardContent className="flex flex-1 flex-col gap-4 p-4">
               <div className="space-y-3">
                 <div className="relative">
-                  <Search className="absolute end-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+                  <Search className="absolute inset-e-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     ref={searchInputRef}
                     dir="rtl"
@@ -440,17 +474,24 @@ export default function PosPage() {
                         onDoubleClick={() => handleItemCardDoubleClick(item)}
                       >
                         <div className="mb-3 flex items-start justify-between gap-3">
-                          <Badge variant="outline" className={getStockBadgeTone(item.current_stock)}>
+                          <Badge
+                            variant="outline"
+                            className={getStockBadgeTone(item.current_stock)}
+                          >
                             مخزون: {item.current_stock}
                           </Badge>
                           <div className="min-w-0">
-                            <p className="truncate font-semibold">{item.name_ar}</p>
+                            <p className="truncate font-semibold">
+                              {item.name_ar}
+                            </p>
                             <p className="mt-1 text-sm text-muted-foreground">
                               {item.barcode || "بدون باركود"}
                             </p>
                           </div>
                         </div>
-                        <p className="text-lg font-semibold">{formatEGP(item.sell_price_millieme)}</p>
+                        <p className="text-lg font-semibold">
+                          {formatEGP(item.sell_price_millieme)}
+                        </p>
                       </button>
                     ))}
                   </div>
@@ -461,7 +502,9 @@ export default function PosPage() {
 
           <Card className="flex min-h-[70vh] flex-col lg:basis-[40%]">
             <CardHeader className="border-b pb-4">
-              <CardTitle className="text-right text-xl">الفاتورة الحالية</CardTitle>
+              <CardTitle className="text-right text-xl">
+                الفاتورة الحالية
+              </CardTitle>
             </CardHeader>
             <CardContent className="flex flex-1 flex-col gap-4 p-4">
               <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border">
@@ -485,7 +528,9 @@ export default function PosPage() {
                       <tbody>
                         {cartItems.map((item) => (
                           <tr key={item.itemId} className="border-t align-top">
-                            <TableCell className="font-medium">{item.nameAr}</TableCell>
+                            <TableCell className="font-medium">
+                              {item.nameAr}
+                            </TableCell>
                             <TableCell>
                               <Input
                                 dir="rtl"
@@ -494,11 +539,16 @@ export default function PosPage() {
                                 className="w-20 text-center"
                                 value={String(item.qty)}
                                 onChange={(event) =>
-                                  updateQty(item.itemId, Number(event.target.value) || 0)
+                                  updateQty(
+                                    item.itemId,
+                                    Number(event.target.value) || 0,
+                                  )
                                 }
                               />
                             </TableCell>
-                            <TableCell>{formatEGP(item.unitPriceMillieme)}</TableCell>
+                            <TableCell>
+                              {formatEGP(item.unitPriceMillieme)}
+                            </TableCell>
                             <TableCell>
                               <Input
                                 key={`${item.itemId}-${item.discountMillieme}`}
@@ -507,7 +557,9 @@ export default function PosPage() {
                                 min={0}
                                 step="0.01"
                                 className="w-24 text-center"
-                                defaultValue={moneyToInput(item.discountMillieme)}
+                                defaultValue={moneyToInput(
+                                  item.discountMillieme,
+                                )}
                                 onBlur={(event) => {
                                   try {
                                     updateLineDiscount(
@@ -544,7 +596,10 @@ export default function PosPage() {
               </div>
 
               <div className="space-y-3 rounded-2xl border p-4">
-                <SummaryRow label="المجموع الفرعي" value={formatEGP(subtotalMillieme)} />
+                <SummaryRow
+                  label="المجموع الفرعي"
+                  value={formatEGP(subtotalMillieme)}
+                />
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-muted-foreground">الخصم الإجمالي</span>
                   <div className="flex items-center gap-2">
@@ -559,7 +614,9 @@ export default function PosPage() {
                       defaultValue={moneyToInput(globalDiscountMillieme)}
                       onBlur={(event) => {
                         try {
-                          setGlobalDiscount(toMillieme(event.target.value || 0));
+                          setGlobalDiscount(
+                            toMillieme(event.target.value || 0),
+                          );
                         } catch {
                           setGlobalDiscount(0);
                           event.target.value = "0";
@@ -583,7 +640,7 @@ export default function PosPage() {
                 <div className="space-y-2">
                   <label className="text-sm font-medium">العميل</label>
                   <div className="relative">
-                    <UserRound className="absolute end-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                    <UserRound className="absolute inset-e-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                       dir="rtl"
                       className="pe-9"
@@ -601,7 +658,7 @@ export default function PosPage() {
                     {customerId ? (
                       <button
                         type="button"
-                        className="absolute start-2 top-1/2 -translate-y-1/2 text-muted-foreground"
+                        className="absolute inset-s-2 top-1/2 -translate-y-1/2 text-muted-foreground"
                         onClick={handleClearCustomer}
                         aria-label="مسح العميل"
                       >
@@ -610,7 +667,9 @@ export default function PosPage() {
                     ) : null}
                   </div>
 
-                  {customersQuery.isSuccess && customerSearch.trim() !== "" && !customerId ? (
+                  {customersQuery.isSuccess &&
+                  customerSearch.trim() !== "" &&
+                  !customerId ? (
                     <div className="max-h-48 overflow-y-auto rounded-xl border bg-background">
                       {customerResults.length === 0 ? (
                         <div className="px-3 py-2 text-sm text-muted-foreground">
@@ -638,8 +697,12 @@ export default function PosPage() {
                 {selectedCustomer ? (
                   <div className="space-y-1 rounded-xl bg-muted/40 p-3 text-sm">
                     <div className="flex items-center justify-between gap-3">
-                      <span className="font-medium">{selectedCustomer.name}</span>
-                      <span>{formatEGP(selectedCustomer.balance_millieme)}</span>
+                      <span className="font-medium">
+                        {selectedCustomer.name}
+                      </span>
+                      <span>
+                        {formatEGP(selectedCustomer.balance_millieme)}
+                      </span>
                     </div>
                     {selectedCustomer.balance_millieme > 0 ? (
                       <p className="font-medium text-amber-700">
@@ -647,7 +710,8 @@ export default function PosPage() {
                       </p>
                     ) : selectedCustomer.balance_millieme < 0 ? (
                       <p className="font-medium text-emerald-700">
-                        رصيد دائن للعميل: {formatEGP(Math.abs(selectedCustomer.balance_millieme))}
+                        رصيد دائن للعميل:{" "}
+                        {formatEGP(Math.abs(selectedCustomer.balance_millieme))}
                       </p>
                     ) : null}
                   </div>
@@ -656,22 +720,26 @@ export default function PosPage() {
 
               <div className="space-y-3 rounded-2xl border p-4">
                 <div className="flex flex-wrap gap-2">
-                  {(Object.entries(paymentMethodLabel) as Array<[PaymentMethod, string]>).map(
-                    ([value, label]) => (
-                      <PaymentTab
-                        key={value}
-                        active={paymentMethod === value}
-                        onClick={() => setPaymentMethod(value)}
-                      >
-                        {label}
-                      </PaymentTab>
-                    ),
-                  )}
+                  {(
+                    Object.entries(paymentMethodLabel) as Array<
+                      [PaymentMethod, string]
+                    >
+                  ).map(([value, label]) => (
+                    <PaymentTab
+                      key={value}
+                      active={paymentMethod === value}
+                      onClick={() => setPaymentMethod(value)}
+                    >
+                      {label}
+                    </PaymentTab>
+                  ))}
                 </div>
 
                 {paymentMethod === "cash" ? (
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">المبلغ المدفوع</label>
+                    <label className="text-sm font-medium">
+                      المبلغ المدفوع
+                    </label>
                     <Input
                       dir="rtl"
                       type="number"
@@ -680,7 +748,9 @@ export default function PosPage() {
                       value={moneyToInput(paidCashMillieme)}
                       onChange={(event) => {
                         try {
-                          setPaidCashAmount(toMillieme(event.target.value || 0));
+                          setPaidCashAmount(
+                            toMillieme(event.target.value || 0),
+                          );
                         } catch {
                           setPaidCashAmount(0);
                         }
@@ -703,7 +773,9 @@ export default function PosPage() {
                       value={moneyToInput(paidCardMillieme)}
                       onChange={(event) => {
                         try {
-                          setPaidCardAmount(toMillieme(event.target.value || 0));
+                          setPaidCardAmount(
+                            toMillieme(event.target.value || 0),
+                          );
                         } catch {
                           setPaidCardAmount(0);
                         }
@@ -723,7 +795,9 @@ export default function PosPage() {
                       value={moneyToInput(paidCashMillieme)}
                       onChange={(event) => {
                         try {
-                          setPaidCashAmount(toMillieme(event.target.value || 0));
+                          setPaidCashAmount(
+                            toMillieme(event.target.value || 0),
+                          );
                           setPaidCardAmount(0);
                         } catch {
                           setPaidCashAmount(0);
@@ -735,16 +809,21 @@ export default function PosPage() {
                       المتبقي على الحساب: {formatEGP(deferredRemainingMillieme)}
                     </p>
                     <p className="text-sm font-medium text-amber-700">
-                      سيتم تسجيل المتبقي كمديونية على العميل بعد خصم أي رصيد دائن متاح له.
+                      سيتم تسجيل المتبقي كمديونية على العميل بعد خصم أي رصيد
+                      دائن متاح له.
                     </p>
                     {projectedCustomerBalanceMillieme !== null ? (
                       projectedCustomerBalanceMillieme > 0 ? (
                         <p className="text-sm font-medium text-amber-700">
-                          الرصيد بعد البيع: مديونية {formatEGP(projectedCustomerBalanceMillieme)}
+                          الرصيد بعد البيع: مديونية{" "}
+                          {formatEGP(projectedCustomerBalanceMillieme)}
                         </p>
                       ) : projectedCustomerBalanceMillieme < 0 ? (
                         <p className="text-sm font-medium text-emerald-700">
-                          الرصيد بعد البيع: دائن للعميل {formatEGP(Math.abs(projectedCustomerBalanceMillieme))}
+                          الرصيد بعد البيع: دائن للعميل{" "}
+                          {formatEGP(
+                            Math.abs(projectedCustomerBalanceMillieme),
+                          )}
                         </p>
                       ) : (
                         <p className="text-sm font-medium text-emerald-700">
@@ -767,7 +846,9 @@ export default function PosPage() {
                         value={moneyToInput(paidCashMillieme)}
                         onChange={(event) => {
                           try {
-                            setPaidCashAmount(toMillieme(event.target.value || 0));
+                            setPaidCashAmount(
+                              toMillieme(event.target.value || 0),
+                            );
                           } catch {
                             setPaidCashAmount(0);
                           }
@@ -784,7 +865,9 @@ export default function PosPage() {
                         value={moneyToInput(paidCardMillieme)}
                         onChange={(event) => {
                           try {
-                            setPaidCardAmount(toMillieme(event.target.value || 0));
+                            setPaidCardAmount(
+                              toMillieme(event.target.value || 0),
+                            );
                           } catch {
                             setPaidCardAmount(0);
                           }
@@ -792,7 +875,8 @@ export default function PosPage() {
                       />
                     </div>
                     <p className="text-sm text-muted-foreground sm:col-span-2">
-                      المدفوع حاليًا: {formatEGP(paidCashMillieme + paidCardMillieme)}
+                      المدفوع حاليًا:{" "}
+                      {formatEGP(paidCashMillieme + paidCardMillieme)}
                     </p>
                   </div>
                 ) : null}

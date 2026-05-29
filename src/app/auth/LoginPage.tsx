@@ -22,7 +22,7 @@ export function LoginPage() {
     setErrorMessage("");
 
     if (!username.trim() || !password.trim()) {
-      setErrorMessage("اسم المستخدم أو كلمة المرور غير صحيحة");
+      setErrorMessage("اسم المستخدم وكلمة المرور مطلوبة");
       return;
     }
 
@@ -30,15 +30,20 @@ export function LoginPage() {
       setIsSubmitting(true);
       await login(username, password);
     } catch (error) {
-      setErrorMessage(parseAppError(error).message_ar);
+      const appError = parseAppError(error);
+      setErrorMessage(
+        appError.code === "INVALID_CREDENTIALS"
+          ? "اسم المستخدم أو كلمة المرور غير صحيحة"
+          : appError.message_ar,
+      );
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_top_left,_rgba(15,23,42,0.06),_transparent_34%),radial-gradient(circle_at_bottom_right,_rgba(2,132,199,0.12),_transparent_30%),linear-gradient(180deg,_#f8fafc,_#eef2ff)] px-4 py-10">
-      <div className="absolute inset-0 -z-10 opacity-70 [background-image:linear-gradient(rgba(15,23,42,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.04)_1px,transparent_1px)] [background-size:32px_32px]" />
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-[radial-gradient(circle_at_top_left,rgba(15,23,42,0.06),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(2,132,199,0.12),transparent_30%),linear-gradient(180deg,#f8fafc,#eef2ff)] px-4 py-10">
+      <div className="absolute inset-0 -z-10 opacity-70 bg-[linear-gradient(rgba(15,23,42,0.04)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.04)_1px,transparent_1px)] bg-size-[32px_32px]" />
 
       <div className="w-full max-w-md rounded-3xl border border-border/70 bg-card/95 p-8 shadow-[0_30px_90px_rgba(15,23,42,0.12)] backdrop-blur">
         <div className="mb-8 text-center">
@@ -53,7 +58,7 @@ export function LoginPage() {
           </p>
         </div>
 
-        <form className="space-y-4" onSubmit={handleSubmit}>
+        <form className="space-y-4" noValidate onSubmit={handleSubmit}>
           <label className="space-y-2 text-right">
             <span className="block text-sm font-medium text-foreground">
               اسم المستخدم

@@ -6,7 +6,6 @@ import {
   type ReactNode,
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import {
   CircleGauge,
@@ -28,6 +27,7 @@ import { DataImportSection } from "@/modules/settings/DataImportSection";
 import { BackupSection } from "@/modules/settings/BackupSection";
 import UsersManagement from "@/modules/settings/users";
 import { useAuthStore } from "@/store/authSlice";
+import { invoke } from "@/shared/utils/invoke";
 
 import {
   type ReceiptSize,
@@ -74,7 +74,8 @@ export default function SettingsPage() {
 
   const printersQuery = useQuery({
     queryKey: ["settings-printers"],
-    queryFn: () => invoke<string[]>("list_printers"),
+    queryFn: () =>
+      invoke<string[]>("list_printers", undefined, { toast: false }),
   });
 
   useEffect(() => {
@@ -85,7 +86,8 @@ export default function SettingsPage() {
 
   const dbSizeQuery = useQuery({
     queryKey: ["settings-db-size"],
-    queryFn: () => invoke<number>("get_db_file_size"),
+    queryFn: () =>
+      invoke<number>("get_db_file_size", undefined, { toast: false }),
     staleTime: 30 * 1000,
   });
 
@@ -96,7 +98,8 @@ export default function SettingsPage() {
   }, [dbSizeQuery.error]);
 
   const vacuumMutation = useMutation({
-    mutationFn: () => invoke<boolean>("vacuum_database"),
+    mutationFn: () =>
+      invoke<boolean>("vacuum_database", undefined, { toast: false }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["settings-db-size"] });
       toast.success("تم تحسين قاعدة البيانات بنجاح");
@@ -140,10 +143,14 @@ export default function SettingsPage() {
   };
 
   const handlePrintTest = async () => {
-    await invoke("print_test_receipt", {
-      printerName: settings.defaultPrinter.trim() || undefined,
-    });
-    toast.success("تم إرسال طباعة تجريبية");
+    try {
+      await invoke("print_test_receipt", {
+        printerName: settings.defaultPrinter.trim() || undefined,
+      });
+      toast.success("تم إرسال طباعة تجريبية");
+    } catch {
+      // The invoke wrapper already showed the Arabic error.
+    }
   };
 
   const selectedPrinter =

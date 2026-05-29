@@ -1,6 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
 import { Loader2, Pencil, Plus, PowerOff } from "lucide-react";
 import { toast } from "sonner";
 
@@ -18,6 +17,7 @@ import { Input } from "@/components/ui/input";
 import { parseAppError } from "@/modules/items/utils";
 import { SectionCard } from "@/shared/components/SectionCard";
 import { cn } from "@/lib/utils";
+import { invoke } from "@/shared/utils/invoke";
 
 type Role = "admin" | "cashier" | "accountant";
 
@@ -63,7 +63,7 @@ export default function UsersManagement() {
 
   const usersQuery = useQuery({
     queryKey: ["users"],
-    queryFn: () => invoke<User[]>("list_users"),
+    queryFn: () => invoke<User[]>("list_users", undefined, { toast: false }),
   });
 
   useEffect(() => {
@@ -90,7 +90,8 @@ export default function UsersManagement() {
   };
 
   const deactivateMutation = useMutation({
-    mutationFn: (id: number) => invoke<boolean>("deactivate_user", { id }),
+    mutationFn: (id: number) =>
+      invoke<boolean>("deactivate_user", { id }, { toast: false }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["users"] });
       toast.success("تم تعطيل المستخدم بنجاح");
@@ -105,7 +106,7 @@ export default function UsersManagement() {
   return (
     <div className="space-y-6 p-6">
       <div className="relative overflow-hidden rounded-3xl border border-border/70 bg-card px-6 py-5 shadow-sm">
-        <div className="absolute inset-y-0 start-0 w-40 bg-gradient-to-l from-primary/10 to-transparent" />
+        <div className="absolute inset-y-0 inset-s-0 w-40 bg-linear-to-l from-primary/10 to-transparent" />
         <p className="text-xs font-semibold uppercase tracking-[0.35em] text-muted-foreground">
           الإعدادات
         </p>
@@ -285,13 +286,17 @@ function UserFormDialog({
       };
 
       if (isEdit && user) {
-        return invoke<User>("update_user", {
-          id: user.id,
-          payload,
-        });
+        return invoke<User>(
+          "update_user",
+          {
+            id: user.id,
+            payload,
+          },
+          { toast: false },
+        );
       }
 
-      return invoke<User>("create_user", { payload });
+      return invoke<User>("create_user", { payload }, { toast: false });
     },
     onSuccess: async () => {
       await onSuccess();
@@ -342,7 +347,7 @@ function UserFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form className="space-y-4" onSubmit={handleSubmit}>
+        <form className="space-y-4" noValidate onSubmit={handleSubmit}>
           <div className="grid gap-4 md:grid-cols-2">
             <Field
               label="الاسم *"

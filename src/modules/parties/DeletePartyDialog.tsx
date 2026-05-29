@@ -1,5 +1,4 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
 import { Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -14,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import type { Party, PartyKind } from "@/modules/parties/types";
 import { getPartyMeta, parseAppError } from "@/modules/parties/utils";
+import { invoke } from "@/shared/utils/invoke";
 
 type DeletePartyDialogProps = {
   kind: PartyKind;
@@ -37,7 +37,11 @@ export function DeletePartyDialog({
         return false;
       }
 
-      return invoke<boolean>(`delete_${kind}`, { id: party.id });
+      return invoke<boolean>(
+        `delete_${kind}`,
+        { id: party.id },
+        { toast: false },
+      );
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: [kind] });
@@ -65,7 +69,11 @@ export function DeletePartyDialog({
             onClick={() => mutation.mutate()}
             disabled={mutation.isPending || !party}
           >
-            {mutation.isPending ? <Loader2 className="animate-spin" /> : <Trash2 />}
+            {mutation.isPending ? (
+              <Loader2 className="animate-spin" />
+            ) : (
+              <Trash2 />
+            )}
             حذف
           </Button>
           <Button

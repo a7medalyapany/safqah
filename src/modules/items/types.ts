@@ -39,7 +39,7 @@ export type StockMovement = {
 export type AppErrorShape = {
   code: string;
   message_ar: string;
-  message_en: string;
+  debugMessage: string;
 };
 
 export type ItemFormValues = {

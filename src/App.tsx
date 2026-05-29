@@ -8,7 +8,9 @@ function App() {
   const bootstrap = useAuthStore((state) => state.bootstrap);
 
   useEffect(() => {
-    void bootstrap();
+    void bootstrap().catch(() => {
+      // The invoke wrapper already reported the error.
+    });
   }, [bootstrap]);
 
   return <RouterProvider router={router} />;

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { Download, Loader2, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
@@ -16,6 +15,7 @@ import {
 } from "@/components/ui/dialog";
 import { parseAppError } from "@/modules/items/utils";
 import { SectionCard } from "@/shared/components/SectionCard";
+import { invoke } from "@/shared/utils/invoke";
 
 type BackupInfo = {
   filename: string;
@@ -39,7 +39,8 @@ export function BackupSection() {
 
   const backupsQuery = useQuery({
     queryKey: ["backups"],
-    queryFn: () => invoke<BackupInfo[]>("list_backups"),
+    queryFn: () =>
+      invoke<BackupInfo[]>("list_backups", undefined, { toast: false }),
   });
 
   useEffect(() => {
@@ -49,7 +50,8 @@ export function BackupSection() {
   }, [backupsQuery.error]);
 
   const backupMutation = useMutation({
-    mutationFn: () => invoke<BackupInfo>("trigger_backup"),
+    mutationFn: () =>
+      invoke<BackupInfo>("trigger_backup", undefined, { toast: false }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["backups"] });
       toast.success("تم إنشاء نسخة احتياطية بنجاح");
@@ -61,9 +63,13 @@ export function BackupSection() {
 
   const restoreMutation = useMutation({
     mutationFn: async (backup: BackupInfo) => {
-      const restored = await invoke<boolean>("restore_backup", {
-        backupPath: backup.path,
-      });
+      const restored = await invoke<boolean>(
+        "restore_backup",
+        {
+          backupPath: backup.path,
+        },
+        { toast: false },
+      );
 
       if (!restored) {
         throw new Error("Restore failed");

@@ -1,7 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { Download, FileUp, Loader2, Package, Users, Truck } from "lucide-react";
 import { toast } from "sonner";
@@ -10,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { exportToCsv } from "@/shared/utils/exportCsv";
 import { parseAppError } from "@/modules/items/utils";
+import { invoke } from "@/shared/utils/invoke";
 
 type CsvImportReport = {
   imported: number;
@@ -104,7 +104,11 @@ export function DataImportSection() {
       filePath: string;
     }) => {
       setBusyKey(target.key);
-      return invoke<CsvImportReport>(target.command, { filePath });
+      return invoke<CsvImportReport>(
+        target.command,
+        { filePath },
+        { toast: false },
+      );
     },
     onSuccess: (report, variables) => {
       const { target } = variables;
@@ -129,24 +133,31 @@ export function DataImportSection() {
   });
 
   const handleImport = async (target: ImportTarget) => {
-    try {
-      toast.info(`اختر ملف CSV لـ ${target.title}`);
+    toast.info(`اختر ملف CSV لـ ${target.title}`);
 
-      const filePath = await open({
+    let filePath: string | undefined;
+
+    try {
+      const selected = await open({
         multiple: false,
         directory: false,
         filters: [{ name: "CSV", extensions: ["csv"] }],
       });
 
-      if (typeof filePath !== "string") {
-        toast.info("لم يتم اختيار ملف");
-        return;
+      if (typeof selected === "string") {
+        filePath = selected;
       }
-
-      await importMutation.mutateAsync({ target, filePath });
     } catch (error) {
       toast.error(parseAppError(error).message_ar);
+      return;
     }
+
+    if (!filePath) {
+      toast.info("لم يتم اختيار ملف");
+      return;
+    }
+
+    void importMutation.mutateAsync({ target, filePath });
   };
 
   const handleTemplateDownload = (target: ImportTarget) => {

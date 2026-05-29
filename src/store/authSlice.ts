@@ -1,5 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
+
+import { invoke } from "@/shared/utils/invoke";
 
 export type Role = "admin" | "cashier" | "accountant";
 
@@ -51,10 +52,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
   async login(username, password) {
-    const response = await invoke<AuthResponse>("login", {
-      username,
-      password,
-    });
+    const response = await invoke<AuthResponse>(
+      "login",
+      {
+        username,
+        password,
+      },
+      { toast: false },
+    );
 
     set({
       user: response.user,
@@ -63,7 +68,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     });
   },
   logout() {
-    void invoke("logout");
+    void invoke("logout", undefined, { toast: false });
     set({ user: null, token: null, isAuthenticated: false });
   },
   hasRole(role) {

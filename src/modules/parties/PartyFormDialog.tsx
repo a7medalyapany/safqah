@@ -1,6 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
 import { Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
 
@@ -14,8 +13,18 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import type { Party, PartyFormValues, PartyKind } from "@/modules/parties/types";
-import { getPartyMeta, parseAppError, toPartyFormValues, toPartyPayload } from "@/modules/parties/utils";
+import type {
+  Party,
+  PartyFormValues,
+  PartyKind,
+} from "@/modules/parties/types";
+import {
+  getPartyMeta,
+  parseAppError,
+  toPartyFormValues,
+  toPartyPayload,
+} from "@/modules/parties/utils";
+import { invoke } from "@/shared/utils/invoke";
 
 type PartyFormDialogProps = {
   kind: PartyKind;
@@ -31,7 +40,9 @@ export function PartyFormDialog({
   onOpenChange,
 }: PartyFormDialogProps) {
   const queryClient = useQueryClient();
-  const [values, setValues] = useState<PartyFormValues>(toPartyFormValues(kind, party));
+  const [values, setValues] = useState<PartyFormValues>(
+    toPartyFormValues(kind, party),
+  );
   const isEdit = Boolean(party);
   const meta = getPartyMeta(kind);
 
@@ -46,17 +57,25 @@ export function PartyFormDialog({
       const payload = toPartyPayload(kind, values);
 
       if (isEdit && party) {
-        return invoke<Party>(`update_${kind}`, {
-          id: party.id,
-          payload,
-        });
+        return invoke<Party>(
+          `update_${kind}`,
+          {
+            id: party.id,
+            payload,
+          },
+          { toast: false },
+        );
       }
 
-      return invoke<Party>(`create_${kind}`, { payload });
+      return invoke<Party>(`create_${kind}`, { payload }, { toast: false });
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: [kind] });
-      toast.success(isEdit ? `تم تحديث بيانات ${meta.singular} بنجاح` : `تم إضافة ${meta.singular} بنجاح`);
+      toast.success(
+        isEdit
+          ? `تم تحديث بيانات ${meta.singular} بنجاح`
+          : `تم إضافة ${meta.singular} بنجاح`,
+      );
       onOpenChange(false);
     },
     onError: (error) => {
@@ -84,14 +103,16 @@ export function PartyFormDialog({
       <DialogContent className="max-w-2xl" showCloseButton={false}>
         <DialogHeader className="text-right">
           <DialogTitle>
-            {isEdit ? `تعديل بيانات ${meta.singular}` : `إضافة ${meta.singular}`}
+            {isEdit
+              ? `تعديل بيانات ${meta.singular}`
+              : `إضافة ${meta.singular}`}
           </DialogTitle>
           <DialogDescription>
             أدخل البيانات الأساسية ثم احفظ التغييرات.
           </DialogDescription>
         </DialogHeader>
 
-        <form className="space-y-4" onSubmit={handleSubmit}>
+        <form className="space-y-4" noValidate onSubmit={handleSubmit}>
           <div className="grid gap-4 md:grid-cols-2">
             <Field
               label="الاسم *"
@@ -143,8 +164,16 @@ export function PartyFormDialog({
           </div>
 
           <DialogFooter className="flex-row-reverse justify-start gap-2 bg-transparent p-0 pt-2">
-            <Button type="submit" className="min-w-28" disabled={mutation.isPending}>
-              {mutation.isPending ? <Loader2 className="animate-spin" /> : <Save />}
+            <Button
+              type="submit"
+              className="min-w-28"
+              disabled={mutation.isPending}
+            >
+              {mutation.isPending ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <Save />
+              )}
               {isEdit ? "حفظ التعديلات" : `إضافة ${meta.singular}`}
             </Button>
             <Button

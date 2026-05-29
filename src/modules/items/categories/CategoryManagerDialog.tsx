@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
 import { Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -17,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Category } from "@/modules/items/types";
 import { parseAppError } from "@/modules/items/utils";
+import { invoke } from "@/shared/utils/invoke";
 
 type CategoryManagerDialogProps = {
   open: boolean;
@@ -32,7 +32,8 @@ export function CategoryManagerDialog({
 
   const categoriesQuery = useQuery({
     queryKey: ["categories"],
-    queryFn: () => invoke<Category[]>("list_categories"),
+    queryFn: () =>
+      invoke<Category[]>("list_categories", undefined, { toast: false }),
     staleTime: 30 * 1000,
     enabled: open,
   });
@@ -41,10 +42,14 @@ export function CategoryManagerDialog({
     mutationFn: async () => {
       const trimmed = nameAr.trim();
       if (!trimmed) {
-        throw new Error("اسم الفئة مطلوب");
+        return null;
       }
 
-      return invoke<Category>("create_category", { nameAr: trimmed });
+      return invoke<Category>(
+        "create_category",
+        { nameAr: trimmed },
+        { toast: false },
+      );
     },
     onSuccess: async () => {
       setNameAr("");
@@ -52,17 +57,13 @@ export function CategoryManagerDialog({
       toast.success("تمت إضافة التصنيف بنجاح");
     },
     onError: (error) => {
-      const appError = parseAppError(error);
-      toast.error(
-        appError.message_en === "اسم الفئة مطلوب"
-          ? "اسم الفئة مطلوب"
-          : appError.message_ar,
-      );
+      toast.error(parseAppError(error).message_ar);
     },
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: number) => invoke<boolean>("delete_category", { id }),
+    mutationFn: async (id: number) =>
+      invoke<boolean>("delete_category", { id }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["categories"] });
       toast.success("تم حذف التصنيف بنجاح");
@@ -95,7 +96,7 @@ export function CategoryManagerDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form className="space-y-4" onSubmit={handleSubmit}>
+        <form className="space-y-4" noValidate onSubmit={handleSubmit}>
           <div className="flex flex-col gap-3 sm:flex-row-reverse">
             <Input
               dir="rtl"
@@ -104,8 +105,16 @@ export function CategoryManagerDialog({
               onChange={(event) => setNameAr(event.target.value)}
               disabled={createMutation.isPending}
             />
-            <Button type="submit" className="sm:min-w-28" disabled={createMutation.isPending}>
-              {createMutation.isPending ? <Loader2 className="animate-spin" /> : <Plus />}
+            <Button
+              type="submit"
+              className="sm:min-w-28"
+              disabled={createMutation.isPending}
+            >
+              {createMutation.isPending ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <Plus />
+              )}
               إضافة
             </Button>
           </div>
@@ -147,7 +156,9 @@ export function CategoryManagerDialog({
                           <Trash2 />
                         )}
                       </Button>
-                      <div className="flex-1 text-right font-medium">{category.name_ar}</div>
+                      <div className="flex-1 text-right font-medium">
+                        {category.name_ar}
+                      </div>
                     </li>
                   ))}
                 </ul>
@@ -156,7 +167,11 @@ export function CategoryManagerDialog({
           </div>
 
           <DialogFooter className="flex-row-reverse justify-start gap-2 bg-transparent p-0 pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
               إغلاق
             </Button>
           </DialogFooter>

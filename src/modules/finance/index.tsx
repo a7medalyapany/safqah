@@ -1,11 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
-import {
-  Loader2,
-  Plus,
-  Receipt,
-} from "lucide-react";
+import { Loader2, Plus, Receipt } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +21,7 @@ import { parseAppError } from "@/modules/items/utils";
 import type { Customer, Supplier } from "@/modules/parties/types";
 import { formatEGP, toMillieme } from "@/shared/utils/money";
 import { useSessionStore, type SessionState } from "@/store/sessionSlice";
+import { invoke } from "@/shared/utils/invoke";
 
 type TabId = "receipts" | "payments" | "deferred" | "expenses" | "summary";
 
@@ -232,7 +228,8 @@ export default function FinancePage() {
 
   const deferredInvoicesQuery = useQuery({
     queryKey: ["deferred-invoices"],
-    queryFn: () => invoke<DeferredInvoiceSummary[]>("get_all_deferred_invoices"),
+    queryFn: () =>
+      invoke<DeferredInvoiceSummary[]>("get_all_deferred_invoices"),
     enabled: activeTab === "deferred",
   });
 
@@ -401,9 +398,8 @@ function ReceiptsSection({
                     </TableCell>
                     <TableCell>{formatEGP(receipt.amount_millieme)}</TableCell>
                     <TableCell>
-                      {PAYMENT_METHOD_LABELS[
-                        receipt.method as PaymentMethod
-                      ] ?? receipt.method}
+                      {PAYMENT_METHOD_LABELS[receipt.method as PaymentMethod] ??
+                        receipt.method}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {receipt.notes || "—"}
@@ -460,9 +456,8 @@ function PaymentsSection({
                     </TableCell>
                     <TableCell>{formatEGP(payment.amount_millieme)}</TableCell>
                     <TableCell>
-                      {PAYMENT_METHOD_LABELS[
-                        payment.method as PaymentMethod
-                      ] ?? payment.method}
+                      {PAYMENT_METHOD_LABELS[payment.method as PaymentMethod] ??
+                        payment.method}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {payment.notes || "—"}
@@ -518,9 +513,7 @@ function ExpensesSection({
                         {expense.category_name_ar || "متنوعة"}
                       </Badge>
                     </TableCell>
-                    <TableCell>
-                      {formatEGP(expense.amount_millieme)}
-                    </TableCell>
+                    <TableCell>{formatEGP(expense.amount_millieme)}</TableCell>
                     <TableCell className="text-muted-foreground">
                       {expense.description || "—"}
                     </TableCell>
@@ -623,21 +616,23 @@ function ReceiptVoucherDialog({
   const [method, setMethod] = useState<PaymentMethod>("cash");
   const [notes, setNotes] = useState("");
 
-  const filtered = customers.filter((c) =>
-    c.name.includes(search),
-  );
+  const filtered = customers.filter((c) => c.name.includes(search));
   const selected = customers.find((c) => c.id === selectedId);
   const maxMillieme = selected ? Math.max(selected.balance_millieme, 0) : 0;
 
   const mutation = useMutation({
     mutationFn: () =>
-      invoke("record_customer_payment", {
-        customerId: selectedId,
-        amountMillieme: toMillieme(amount),
-        method,
-        notes: notes.trim() || null,
-        sessionId,
-      }),
+      invoke(
+        "record_customer_payment",
+        {
+          customerId: selectedId,
+          amountMillieme: toMillieme(amount),
+          method,
+          notes: notes.trim() || null,
+          sessionId,
+        },
+        { toast: false },
+      ),
     onSuccess: async () => {
       toast.success("تم تسجيل سند القبض بنجاح");
       await Promise.all([
@@ -677,9 +672,7 @@ function ReceiptVoucherDialog({
       <DialogContent className="max-w-lg" showCloseButton={false}>
         <DialogHeader className="text-right">
           <DialogTitle>سند قبض جديد</DialogTitle>
-          <DialogDescription>
-            تسجيل مبلغ مستلم من عميل.
-          </DialogDescription>
+          <DialogDescription>تسجيل مبلغ مستلم من عميل.</DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="space-y-2">
@@ -708,7 +701,8 @@ function ReceiptVoucherDialog({
                       type="button"
                       className={cn(
                         "w-full px-3 py-2 text-right text-sm transition-colors hover:bg-muted",
-                        selectedId === customer.id && "bg-primary/10 font-medium",
+                        selectedId === customer.id &&
+                          "bg-primary/10 font-medium",
                       )}
                       onClick={() => {
                         setSelectedId(customer.id);
@@ -738,7 +732,9 @@ function ReceiptVoucherDialog({
               inputMode="decimal"
               step="0.001"
               min="0"
-              max={maxMillieme > 0 ? (maxMillieme / 1000).toString() : undefined}
+              max={
+                maxMillieme > 0 ? (maxMillieme / 1000).toString() : undefined
+              }
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
             />
@@ -776,9 +772,7 @@ function ReceiptVoucherDialog({
 
           <DialogFooter className="flex-row-reverse justify-start gap-2 bg-transparent p-0 pt-2">
             <Button type="submit" disabled={mutation.isPending}>
-              {mutation.isPending ? (
-                <Loader2 className="animate-spin" />
-              ) : null}
+              {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
               حفظ السند
             </Button>
             <Button
@@ -818,13 +812,17 @@ function PaymentVoucherDialog({
 
   const mutation = useMutation({
     mutationFn: () =>
-      invoke("record_supplier_payment", {
-        supplierId: selectedId,
-        amountMillieme: toMillieme(amount),
-        method,
-        notes: notes.trim() || null,
-        sessionId,
-      }),
+      invoke(
+        "record_supplier_payment",
+        {
+          supplierId: selectedId,
+          amountMillieme: toMillieme(amount),
+          method,
+          notes: notes.trim() || null,
+          sessionId,
+        },
+        { toast: false },
+      ),
     onSuccess: async () => {
       toast.success("تم تسجيل سند الصرف بنجاح");
       await Promise.all([
@@ -864,9 +862,7 @@ function PaymentVoucherDialog({
       <DialogContent className="max-w-lg" showCloseButton={false}>
         <DialogHeader className="text-right">
           <DialogTitle>سند صرف جديد</DialogTitle>
-          <DialogDescription>
-            تسجيل مبلغ مدفوع لمورد.
-          </DialogDescription>
+          <DialogDescription>تسجيل مبلغ مدفوع لمورد.</DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="space-y-2">
@@ -963,9 +959,7 @@ function PaymentVoucherDialog({
 
           <DialogFooter className="flex-row-reverse justify-start gap-2 bg-transparent p-0 pt-2">
             <Button type="submit" disabled={mutation.isPending}>
-              {mutation.isPending ? (
-                <Loader2 className="animate-spin" />
-              ) : null}
+              {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
               حفظ السند
             </Button>
             <Button
@@ -1000,12 +994,16 @@ function ExpenseDialog({
 
   const mutation = useMutation({
     mutationFn: () =>
-      invoke("create_expense", {
-        amountMillieme: toMillieme(amount),
-        categoryId: categoryId ? Number(categoryId) : null,
-        description: description.trim() || null,
-        sessionId,
-      }),
+      invoke(
+        "create_expense",
+        {
+          amountMillieme: toMillieme(amount),
+          categoryId: categoryId ? Number(categoryId) : null,
+          description: description.trim() || null,
+          sessionId,
+        },
+        { toast: false },
+      ),
     onSuccess: async () => {
       toast.success("تم تسجيل المصروف بنجاح");
       await Promise.all([
@@ -1038,9 +1036,7 @@ function ExpenseDialog({
       <DialogContent className="max-w-lg" showCloseButton={false}>
         <DialogHeader className="text-right">
           <DialogTitle>مصروف جديد</DialogTitle>
-          <DialogDescription>
-            تسجيل مصروف تشغيلي.
-          </DialogDescription>
+          <DialogDescription>تسجيل مصروف تشغيلي.</DialogDescription>
         </DialogHeader>
         <form className="space-y-4" onSubmit={handleSubmit}>
           <label className="space-y-2">
@@ -1078,7 +1074,9 @@ function ExpenseDialog({
           </label>
 
           <label className="space-y-2">
-            <span className="block text-sm font-medium text-foreground">وصف</span>
+            <span className="block text-sm font-medium text-foreground">
+              وصف
+            </span>
             <textarea
               dir="rtl"
               className="min-h-20 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
@@ -1089,9 +1087,7 @@ function ExpenseDialog({
 
           <DialogFooter className="flex-row-reverse justify-start gap-2 bg-transparent p-0 pt-2">
             <Button type="submit" disabled={mutation.isPending}>
-              {mutation.isPending ? (
-                <Loader2 className="animate-spin" />
-              ) : null}
+              {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
               حفظ
             </Button>
             <Button
@@ -1207,12 +1203,15 @@ function CollectPaymentDialog({
 
   const mutation = useMutation({
     mutationFn: () =>
-      invoke<{ status: string; paid_millieme: number }>("record_invoice_payment", {
-        invoiceId: invoice!.invoice_id,
-        amountMillieme: toMillieme(amount),
-        method,
-        sessionId,
-      }),
+      invoke<{ status: string; paid_millieme: number }>(
+        "record_invoice_payment",
+        {
+          invoiceId: invoice!.invoice_id,
+          amountMillieme: toMillieme(amount),
+          method,
+          sessionId,
+        },
+      ),
     onSuccess: (result) => {
       if (result.status === "paid") {
         toast.success("تم سداد الفاتورة بالكامل");
@@ -1260,9 +1259,7 @@ function CollectPaymentDialog({
       <DialogContent className="max-w-lg" showCloseButton={false}>
         <DialogHeader className="text-right">
           <DialogTitle>تسجيل دفعة</DialogTitle>
-          <DialogDescription>
-            تسجيل دفعة على فاتورة آجلة.
-          </DialogDescription>
+          <DialogDescription>تسجيل دفعة على فاتورة آجلة.</DialogDescription>
         </DialogHeader>
 
         {invoice && (
@@ -1329,9 +1326,7 @@ function CollectPaymentDialog({
 
           <DialogFooter className="flex-row-reverse justify-start gap-2 bg-transparent p-0 pt-2">
             <Button type="submit" disabled={mutation.isPending}>
-              {mutation.isPending ? (
-                <Loader2 className="animate-spin" />
-              ) : null}
+              {mutation.isPending ? <Loader2 className="animate-spin" /> : null}
               تسجيل الدفعة
             </Button>
             <Button
@@ -1372,9 +1367,7 @@ function SummaryCard({
     <Card className={cn("border", tones[tone])}>
       <CardContent className="space-y-1 p-4 text-center">
         <p className="text-xs font-medium opacity-80">{title}</p>
-        <p className="text-xl font-bold">
-          {isLoading ? "..." : value}
-        </p>
+        <p className="text-xl font-bold">{isLoading ? "..." : value}</p>
       </CardContent>
     </Card>
   );

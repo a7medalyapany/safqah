@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 
+import { ErrorBoundary } from "@/app/ErrorBoundary";
 import { Sidebar } from "@/app/sidebar/Sidebar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,7 +15,10 @@ import { type SessionState, useSessionStore } from "@/store/sessionSlice";
 const SIDEBAR_WIDTH = 240;
 
 export function AppLayout() {
-  const activeSession = useSessionStore((state: SessionState) => state.activeSession);
+  const location = useLocation();
+  const activeSession = useSessionStore(
+    (state: SessionState) => state.activeSession,
+  );
   const fetchActiveSession = useSessionStore(
     (state: SessionState) => state.fetchActiveSession,
   );
@@ -41,7 +45,9 @@ export function AppLayout() {
     };
   }, []);
 
-  const cashierName = activeSession ? `الكاشير ${activeSession.cashier_id}` : null;
+  const cashierName = activeSession
+    ? `الكاشير ${activeSession.cashier_id}`
+    : null;
   const currentDate = new Intl.DateTimeFormat("ar-EG", {
     weekday: "long",
     year: "numeric",
@@ -61,9 +67,7 @@ export function AppLayout() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-lg font-semibold">إدارة الجلسة الحالية</p>
-              <p className="text-sm text-muted-foreground">
-                {currentDate}
-              </p>
+              <p className="text-sm text-muted-foreground">{currentDate}</p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -89,7 +93,9 @@ export function AppLayout() {
           </div>
         </header>
 
-        <Outlet />
+        <ErrorBoundary key={location.pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
 
       <OpenSessionDialog
