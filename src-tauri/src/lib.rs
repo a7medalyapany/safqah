@@ -24,7 +24,10 @@ use commands::{
         create_category, create_item, delete_category, delete_item, get_item_by_barcode,
         list_categories, list_items, update_item,
     },
-    print::{generate_invoice_pdf, list_printers, open_whatsapp_with_invoice, print_receipt},
+    print::{
+        generate_invoice_pdf, get_label_printer_list, list_printers, open_whatsapp_with_invoice,
+        print_barcode_labels, print_receipt,
+    },
     reports::{
         report_customer_balances, report_daily_sales, report_low_stock, report_payment_methods,
         report_profit_analysis, report_sales_by_period, report_supplier_balances,
@@ -147,9 +150,11 @@ pub fn run() {
             create_purchase_invoice,
             get_purchase_stats,
             print_receipt,
+            print_barcode_labels,
             generate_invoice_pdf,
             open_whatsapp_with_invoice,
             list_printers,
+            get_label_printer_list,
             create_expense,
             list_expenses,
             list_expense_categories,

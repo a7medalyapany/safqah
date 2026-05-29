@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import {
   ChartSkeleton,
@@ -8,6 +8,7 @@ import {
 } from "@/modules/dashboard/components/DashboardStates";
 import { KpiCards } from "@/modules/dashboard/components/KpiCards";
 import { LowStockPanel } from "@/modules/dashboard/components/LowStockPanel";
+import { BulkBarcodePrintSection } from "@/modules/dashboard/components/BulkBarcodePrintSection";
 import { QuickActions } from "@/modules/dashboard/components/QuickActions";
 import { RecentInvoicesPanel } from "@/modules/dashboard/components/RecentInvoicesPanel";
 import { SalesTrendChart } from "@/modules/dashboard/components/SalesTrendChart";
@@ -30,6 +31,7 @@ const STALE_TIME = 2 * 60 * 1000;
 
 export default function DashboardPage() {
   const [isItemDialogOpen, setIsItemDialogOpen] = useState(false);
+  const barcodeSectionRef = useRef<HTMLDivElement | null>(null);
   const todayValue = useMemo(() => today(), []);
   const days = useMemo(() => lastDays(7), []);
   const dateFrom = days[0]?.iso ?? todayValue;
@@ -93,7 +95,17 @@ export default function DashboardPage() {
         </p>
       </header>
 
-      <QuickActions onAddItem={() => setIsItemDialogOpen(true)} />
+      <QuickActions
+        onAddItem={() => setIsItemDialogOpen(true)}
+        onBarcodeLabels={() => {
+          barcodeSectionRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "start",
+          });
+        }}
+      />
+
+      <BulkBarcodePrintSection ref={barcodeSectionRef} />
 
       <KpiCards
         dailySales={dashboard?.dailySales}

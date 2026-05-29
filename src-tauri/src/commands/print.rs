@@ -9,6 +9,7 @@ use crate::{
     commands::settings::get_setting_value,
     db::DbPool,
     errors::AppError,
+    models::item::Item,
     services::invoice_pdf as invoice_pdf_service,
     services::print_queue::{enqueue_print_job, send_print_payload, PrintPayload, PrintQueue},
 };
@@ -43,6 +44,16 @@ struct ReceiptSettings {
     show_shop_phone_on_receipt: bool,
     show_thank_you_on_receipt: bool,
     receipt_thank_you_message: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct BarcodeLabelConfig {
+    pub item_id: i64,
+    pub quantity: i64,
+    pub show_name: bool,
+    pub show_price: bool,
+    pub show_shop_name: bool,
+    pub label_size: String,
 }
 
 #[tauri::command]
@@ -118,6 +129,65 @@ pub async fn open_whatsapp_with_invoice(
 }
 
 #[tauri::command]
+pub async fn print_barcode_labels(
+    pool: State<'_, DbPool>,
+    queue: State<'_, PrintQueue>,
+    configs: Vec<BarcodeLabelConfig>,
+) -> Result<bool, AppError> {
+    if configs.is_empty() {
+        return Err(AppError::validation("لا توجد ملصقات للطباعة"));
+    }
+
+    let settings = fetch_receipt_settings(&pool).await?;
+    let settings_map = fetch_settings_map(&pool).await?;
+    let mut bytes = Vec::new();
+
+    for config in configs {
+        if config.quantity < 1 {
+            return Err(AppError::validation("عدد النسخ يجب أن يكون 1 على الأقل"));
+        }
+
+        let item = fetch_barcode_label_item(&pool, config.item_id).await?;
+        let Some(barcode) = item
+            .barcode
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return Err(AppError::new(
+                "NO_BARCODE",
+                &format!("الصنف {} لا يحتوي على باركود", item.name_ar),
+                "Item has no barcode",
+            ));
+        };
+
+        for _ in 0..config.quantity {
+            bytes.extend_from_slice(&build_barcode_label_bytes(
+                &settings,
+                &settings_map,
+                &item,
+                barcode,
+                &config,
+            ));
+        }
+    }
+
+    let payload = PrintPayload {
+        bytes,
+        printer_name: label_printer_name(&settings_map).or_else(|| get_default_printer(&settings)),
+        invoice_id: 0,
+    };
+
+    send_or_queue_print(&queue, payload, 0).await?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn get_label_printer_list() -> Result<Vec<String>, AppError> {
+    list_printers().await
+}
+
+#[tauri::command]
 pub async fn list_printers() -> Result<Vec<String>, AppError> {
     match list_os_printers() {
         Ok(printers) => Ok(printers),
@@ -184,6 +254,20 @@ async fn fetch_receipt_settings(pool: &DbPool) -> Result<ReceiptSettings, AppErr
     })
 }
 
+async fn fetch_barcode_label_item(pool: &DbPool, item_id: i64) -> Result<Item, AppError> {
+    sqlx::query_as::<_, Item>(
+        r#"
+        SELECT *
+        FROM items
+        WHERE id = ? AND is_active = 1
+        "#,
+    )
+    .bind(item_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("الصنف"))
+}
+
 async fn load_setting_text(pool: &DbPool, key: &str, default: &str) -> Result<String, AppError> {
     Ok(get_setting_value(pool, key)
         .await?
@@ -212,6 +296,84 @@ fn get_default_printer(settings: &ReceiptSettings) -> Option<String> {
     } else {
         Some(value.to_owned())
     }
+}
+
+fn label_printer_name(settings: &HashMap<String, String>) -> Option<String> {
+    let value = setting_text(settings, "label_printer", "");
+    if value.trim().is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+fn build_barcode_label_bytes(
+    settings: &ReceiptSettings,
+    settings_map: &HashMap<String, String>,
+    item: &Item,
+    barcode: &str,
+    config: &BarcodeLabelConfig,
+) -> Vec<u8> {
+    let mut bytes = Vec::new();
+
+    bytes.extend_from_slice(&[0x1b, b'@']);
+    bytes.extend_from_slice(&[0x1b, b't', 22]);
+    bytes.extend_from_slice(&[0x1b, b'a', 1]);
+    bytes.extend_from_slice(&[0x1d, b'!', 0x00]);
+
+    if config.show_shop_name {
+        push_centered_text_line(
+            &mut bytes,
+            &setting_text(settings_map, "shop_name", &settings.shop_name),
+        );
+    }
+
+    push_barcode_code128(&mut bytes, barcode);
+
+    if config.show_name {
+        push_centered_text_line(&mut bytes, &item.name_ar);
+    }
+
+    if config.show_price {
+        push_centered_text_line(
+            &mut bytes,
+            &format_receipt_money(item.sell_price_millieme, "ج.م"),
+        );
+    }
+
+    bytes.extend_from_slice(&[0x1d, b'V', 66, label_height_dots(&config.label_size)]);
+    bytes
+}
+
+fn push_centered_text_line(bytes: &mut Vec<u8>, text: &str) {
+    bytes.extend_from_slice(&[0x1b, b'a', 1]);
+    push_text_line(bytes, text);
+}
+
+fn push_barcode_code128(bytes: &mut Vec<u8>, barcode: &str) {
+    let barcode_bytes = barcode.as_bytes();
+    let barcode_length = barcode_bytes.len().min(u8::MAX as usize) as u8;
+    let barcode_bytes = &barcode_bytes[..usize::from(barcode_length)];
+
+    bytes.extend_from_slice(&[0x1d, b'H', 2]);
+    bytes.extend_from_slice(&[0x1d, b'f', 0]);
+    bytes.extend_from_slice(&[0x1d, b'k', 73, barcode_length]);
+    bytes.extend_from_slice(barcode_bytes);
+    bytes.push(b'\n');
+}
+
+fn label_height_dots(label_size: &str) -> u8 {
+    match label_size {
+        "30x20" => 160,
+        "50x30" => 240,
+        _ => 200,
+    }
+}
+
+fn format_receipt_money(millieme: i64, currency_symbol: &str) -> String {
+    let pounds = millieme / 1000;
+    let fraction = (millieme.abs() % 1000) / 10;
+    format!("{pounds}.{fraction:02} {currency_symbol}")
 }
 
 fn build_receipt_bytes(
@@ -517,12 +679,6 @@ fn format_item_line(item: &ReceiptItem, currency_symbol: &str) -> String {
         item.qty,
         format_receipt_money(item.unit_price_millieme, currency_symbol)
     )
-}
-
-fn format_receipt_money(millieme: i64, currency_symbol: &str) -> String {
-    let pounds = millieme / 1000;
-    let fraction = (millieme.abs() % 1000) / 10;
-    format!("{pounds}.{fraction:02} {currency_symbol}")
 }
 
 fn format_receipt_date(value: &str) -> String {
