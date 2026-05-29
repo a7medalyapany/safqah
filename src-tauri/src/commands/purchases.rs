@@ -8,6 +8,7 @@ use crate::{
     models::purchase::{
         CreatePurchasePayload, PurchaseDetail, PurchaseDetailRow, PurchaseFilters, PurchaseInvoice,
         PurchaseInvoiceRow, PurchaseItem, PurchaseItemDetail, PurchaseItemPayload, PurchaseSummary,
+        ItemPurchaseHistory, ItemBasePriceRow, LastItemPurchaseRow, ItemPurchaseStatsRow,
     },
 };
 
@@ -394,6 +395,77 @@ async fn get_purchase_stats_impl(pool: &DbPool) -> Result<PurchaseStats, AppErro
     .map_err(Into::into)
 }
 
+async fn get_item_purchase_history_impl(
+        pool: &DbPool,
+        item_id: i64,
+) -> Result<ItemPurchaseHistory, AppError> {
+        let item = sqlx::query_as::<_, ItemBasePriceRow>(
+                r#"
+                SELECT
+                    id AS item_id,
+                    name_ar,
+                    buy_price_millieme AS current_buy_price_millieme,
+                    sell_price_millieme AS current_sell_price_millieme
+                FROM items
+                WHERE id = ?
+                "#,
+        )
+        .bind(item_id)
+        .fetch_optional(pool)
+        .await?
+        .ok_or_else(item_not_found_error)?;
+
+        let last_purchase = sqlx::query_as::<_, LastItemPurchaseRow>(
+                r#"
+                SELECT
+                    pi2.unit_cost_millieme AS last_purchase_cost_millieme,
+                    pi2.qty AS last_purchase_qty,
+                    pu.name AS last_supplier_name,
+                    p.created_at AS last_purchase_date
+                FROM purchase_items pi2
+                JOIN purchase_invoices p ON p.id = pi2.purchase_id
+                LEFT JOIN suppliers pu ON pu.id = p.supplier_id
+                WHERE pi2.item_id = ?
+                ORDER BY p.created_at DESC, pi2.id DESC
+                LIMIT 1
+                "#,
+        )
+        .bind(item_id)
+        .fetch_optional(pool)
+        .await?;
+
+        let stats = sqlx::query_as::<_, ItemPurchaseStatsRow>(
+                r#"
+                SELECT
+                    COUNT(*) AS purchase_count,
+                    CASE
+                        WHEN COUNT(*) = 0 THEN NULL
+                        ELSE CAST(ROUND(AVG(unit_cost_millieme)) AS INTEGER)
+                    END AS avg_cost_millieme
+                FROM purchase_items
+                WHERE item_id = ?
+                "#,
+        )
+        .bind(item_id)
+        .fetch_one(pool)
+        .await?;
+
+        Ok(ItemPurchaseHistory {
+                item_id: item.item_id,
+                name_ar: item.name_ar,
+                current_buy_price_millieme: item.current_buy_price_millieme,
+                current_sell_price_millieme: item.current_sell_price_millieme,
+                last_purchase_date: last_purchase.as_ref().map(|row| row.last_purchase_date.clone()),
+                last_purchase_cost_millieme: last_purchase
+                        .as_ref()
+                        .map(|row| row.last_purchase_cost_millieme),
+                last_purchase_qty: last_purchase.as_ref().map(|row| row.last_purchase_qty),
+                last_supplier_name: last_purchase.and_then(|row| row.last_supplier_name),
+                purchase_count: stats.purchase_count,
+                avg_cost_millieme: stats.avg_cost_millieme,
+        })
+}
+
 #[tauri::command]
 pub async fn list_purchases(
     pool: State<'_, DbPool>,
@@ -421,6 +493,14 @@ pub async fn create_purchase_invoice(
 #[tauri::command]
 pub async fn get_purchase_stats(pool: State<'_, DbPool>) -> Result<PurchaseStats, AppError> {
     get_purchase_stats_impl(&pool).await
+}
+
+#[tauri::command]
+pub async fn get_item_purchase_history(
+    pool: State<'_, DbPool>,
+    item_id: i64,
+) -> Result<ItemPurchaseHistory, AppError> {
+    get_item_purchase_history_impl(&pool, item_id).await
 }
 
 #[cfg(test)]
@@ -718,6 +798,131 @@ mod tests {
         assert_eq!(stats.paid_count, 1);
         assert_eq!(stats.deferred_count, 1);
         assert_eq!(stats.total_purchases_millieme, 20000);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn item_purchase_history_returns_empty_state_before_any_purchase() -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let item_id = insert_item(&pool, "Test Item", 2).await?;
+
+        let history = get_item_purchase_history_impl(&pool, item_id).await?;
+        assert_eq!(history.item_id, item_id);
+        assert_eq!(history.name_ar, "Test Item");
+        assert_eq!(history.current_buy_price_millieme, 5000);
+        assert_eq!(history.current_sell_price_millieme, 15000);
+        assert_eq!(history.last_purchase_date, None);
+        assert_eq!(history.last_purchase_cost_millieme, None);
+        assert_eq!(history.last_purchase_qty, None);
+        assert_eq!(history.last_supplier_name, None);
+        assert_eq!(history.purchase_count, 0);
+        assert_eq!(history.avg_cost_millieme, None);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn item_purchase_history_returns_last_purchase_and_stats() -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let item_id = insert_item(&pool, "Test Item", 0).await?;
+        let supplier_id = insert_supplier(&pool, 0).await?;
+
+        let first_purchase_id = sqlx::query(
+            r#"
+            INSERT INTO purchase_invoices (
+              invoice_number,
+              supplier_id,
+              session_id,
+              subtotal_millieme,
+              discount_millieme,
+              total_millieme,
+              paid_millieme,
+              payment_method,
+              status,
+              notes,
+              created_at
+            )
+            VALUES ('PUR-000001', ?, NULL, 48000, 0, 48000, 48000, 'cash', 'paid', NULL, '2026-05-10 10:00:00')
+            "#,
+        )
+        .bind(supplier_id)
+        .execute(&pool)
+        .await?
+        .last_insert_rowid();
+
+        sqlx::query(
+            r#"
+            INSERT INTO purchase_items (
+              purchase_id,
+              item_id,
+              qty,
+              unit_cost_millieme,
+              suggested_sell_price_millieme,
+              total_millieme
+            )
+            VALUES (?, ?, 4, 12000, 20000, 48000)
+            "#,
+        )
+        .bind(first_purchase_id)
+        .bind(item_id)
+        .execute(&pool)
+        .await?;
+
+        let second_purchase_id = sqlx::query(
+            r#"
+            INSERT INTO purchase_invoices (
+              invoice_number,
+              supplier_id,
+              session_id,
+              subtotal_millieme,
+              discount_millieme,
+              total_millieme,
+              paid_millieme,
+              payment_method,
+              status,
+              notes,
+              created_at
+            )
+            VALUES ('PUR-000002', ?, NULL, 20000, 0, 20000, 20000, 'cash', 'paid', NULL, '2026-05-12 10:00:00')
+            "#,
+        )
+        .bind(supplier_id)
+        .execute(&pool)
+        .await?
+        .last_insert_rowid();
+
+        sqlx::query(
+            r#"
+            INSERT INTO purchase_items (
+              purchase_id,
+              item_id,
+              qty,
+              unit_cost_millieme,
+              suggested_sell_price_millieme,
+              total_millieme
+            )
+            VALUES (?, ?, 2, 10000, 19000, 20000)
+            "#,
+        )
+        .bind(second_purchase_id)
+        .bind(item_id)
+        .execute(&pool)
+        .await?;
+
+        sqlx::query("UPDATE items SET buy_price_millieme = 10000 WHERE id = ?")
+            .bind(item_id)
+            .execute(&pool)
+            .await?;
+
+        let history = get_item_purchase_history_impl(&pool, item_id).await?;
+        assert_eq!(history.purchase_count, 2);
+        assert_eq!(history.avg_cost_millieme, Some(11000));
+        assert_eq!(history.last_purchase_cost_millieme, Some(10000));
+        assert_eq!(history.last_purchase_qty, Some(2));
+        assert_eq!(history.last_supplier_name.as_deref(), Some("مورد اختبار"));
+        assert!(history.last_purchase_date.is_some());
+        assert_eq!(history.current_buy_price_millieme, 10000);
 
         Ok(())
     }
