@@ -105,8 +105,6 @@ export default function DashboardPage() {
         }}
       />
 
-      <BulkBarcodePrintSection ref={barcodeSectionRef} />
-
       <KpiCards
         dailySales={dashboard?.dailySales}
         isLoading={dashboardQuery.isLoading}
@@ -150,6 +148,8 @@ export default function DashboardPage() {
           loadingFallback={<ListSkeleton rows={5} />}
         />
       </section>
+
+      <BulkBarcodePrintSection ref={barcodeSectionRef} />
 
       <ItemFormDialog
         open={isItemDialogOpen}
