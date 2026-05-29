@@ -1,6 +1,5 @@
 import { useDeferredValue, useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
 import {
   ArrowDown,
   ArrowUp,
@@ -38,6 +37,7 @@ import type { Category, Item, StockMovement } from "@/modules/items/types";
 import { getItemStockTone } from "@/modules/items/utils";
 import { useBarcodeScanner } from "@/shared/hooks/useBarcodeScanner";
 import { formatEGP } from "@/shared/utils/money";
+import { invoke } from "@/shared/utils/invoke";
 
 export default function ItemsPage() {
   const [search, setSearch] = useState("");
@@ -65,10 +65,14 @@ export default function ItemsPage() {
 
   const simulateScannerInput = () => {
     for (const key of "1234567890") {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key, bubbles: true }),
+      );
     }
 
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+    );
   };
 
   const categoriesQuery = useQuery({
@@ -79,7 +83,8 @@ export default function ItemsPage() {
 
   const statsQuery = useQuery({
     queryKey: ["items-stats"],
-    queryFn: () => invoke<Item[]>("list_items", { search: null, categoryId: null }),
+    queryFn: () =>
+      invoke<Item[]>("list_items", { search: null, categoryId: null }),
     staleTime: 30 * 1000,
   });
 
@@ -142,7 +147,7 @@ export default function ItemsPage() {
           <div className="flex flex-col-reverse gap-3 rounded-2xl border bg-card p-4 lg:flex-row-reverse lg:items-center lg:justify-between">
             <div className="flex flex-1 flex-col gap-3 md:flex-row-reverse">
               <div className="relative flex-1">
-                <Search className="absolute end-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Search className="absolute inset-e-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   dir="rtl"
                   className="pe-9"
@@ -168,7 +173,10 @@ export default function ItemsPage() {
             </div>
 
             <div className="flex flex-col gap-2 sm:flex-row-reverse">
-              <Button variant="outline" onClick={() => setIsCategoryManagerOpen(true)}>
+              <Button
+                variant="outline"
+                onClick={() => setIsCategoryManagerOpen(true)}
+              >
                 <FolderTree />
                 إدارة التصنيفات
               </Button>
@@ -213,7 +221,9 @@ export default function ItemsPage() {
                         <td colSpan={9} className="px-6 py-16">
                           <div className="flex flex-col items-center justify-center gap-3 text-center">
                             <PackageSearch className="size-10 text-muted-foreground" />
-                            <p className="text-base font-medium">لا توجد أصناف</p>
+                            <p className="text-base font-medium">
+                              لا توجد أصناف
+                            </p>
                           </div>
                         </td>
                       </tr>
@@ -249,7 +259,10 @@ export default function ItemsPage() {
                             {formatEGP(item.sell_price_millieme)}
                           </TableCell>
                           <TableCell>
-                            {getCategoryName(item.category_id, categoriesQuery.data)}
+                            {getCategoryName(
+                              item.category_id,
+                              categoriesQuery.data,
+                            )}
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-row-reverse justify-start gap-2">
@@ -299,10 +312,7 @@ export default function ItemsPage() {
         </CardContent>
       </Card>
 
-      <ItemFormDialog
-        open={isCreateOpen}
-        onOpenChange={setIsCreateOpen}
-      />
+      <ItemFormDialog open={isCreateOpen} onOpenChange={setIsCreateOpen} />
 
       <ItemFormDialog
         item={editingItem}
@@ -386,11 +396,7 @@ function LoadingRows() {
   ));
 }
 
-function TableHead({
-  children,
-}: {
-  children: ReactNode;
-}) {
+function TableHead({ children }: { children: ReactNode }) {
   return <th className="px-4 py-3 text-right font-medium">{children}</th>;
 }
 
@@ -401,18 +407,19 @@ function TableCell({
   children: ReactNode;
   className?: string;
 }) {
-  return <td className={`px-4 py-3 align-middle ${className ?? ""}`}>{children}</td>;
+  return (
+    <td className={`px-4 py-3 align-middle ${className ?? ""}`}>{children}</td>
+  );
 }
 
-function getCategoryName(
-  categoryId: number | null,
-  categories?: Category[],
-) {
+function getCategoryName(categoryId: number | null, categories?: Category[]) {
   if (!categoryId) {
     return "—";
   }
 
-  return categories?.find((category) => category.id === categoryId)?.name_ar ?? "—";
+  return (
+    categories?.find((category) => category.id === categoryId)?.name_ar ?? "—"
+  );
 }
 
 const MOVEMENTS_PAGE_SIZE = 20;
@@ -469,7 +476,10 @@ function StockMovementsSheet({
 
         <div className="mt-4 space-y-4">
           <div className="flex items-center justify-between gap-3">
-            <Badge variant="outline" className={item ? getItemStockTone(item) : ""}>
+            <Badge
+              variant="outline"
+              className={item ? getItemStockTone(item) : ""}
+            >
               {item
                 ? `الرصيد الحالي: ${item.current_stock} قطعة`
                 : "الرصيد الحالي: —"}
@@ -495,7 +505,9 @@ function StockMovementsSheet({
                 const isPositive = movement.delta > 0;
                 const deltaLabel = `${isPositive ? "+" : ""}${movement.delta}`;
                 const referenceTarget =
-                  movement.movement_type === "purchase" ? "/purchases" : "/sales";
+                  movement.movement_type === "purchase"
+                    ? "/purchases"
+                    : "/sales";
                 const canLinkReference =
                   movement.movement_type === "purchase" ||
                   movement.movement_type === "sale";
@@ -568,7 +580,9 @@ function StockMovementsSheet({
             <div className="flex justify-center">
               <Button
                 variant="outline"
-                onClick={() => setVisibleLimit((current) => current + MOVEMENTS_PAGE_SIZE)}
+                onClick={() =>
+                  setVisibleLimit((current) => current + MOVEMENTS_PAGE_SIZE)
+                }
                 disabled={movementsQuery.isFetching}
               >
                 تحميل المزيد

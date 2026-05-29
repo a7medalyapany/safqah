@@ -1,4 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -14,7 +13,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { parseAppError } from "@/modules/items/utils";
 import { formatEGP, toMillieme } from "@/shared/utils/money";
-import { type Session, type SessionState, useSessionStore } from "@/store/sessionSlice";
+import {
+  type Session,
+  type SessionState,
+  useSessionStore,
+} from "@/store/sessionSlice";
+import { invoke } from "@/shared/utils/invoke";
 
 type CloseSessionDialogProps = {
   open: boolean;
@@ -27,7 +31,9 @@ export function CloseSessionDialog({
   onOpenChange,
   session,
 }: CloseSessionDialogProps) {
-  const closeSession = useSessionStore((state: SessionState) => state.closeSession);
+  const closeSession = useSessionStore(
+    (state: SessionState) => state.closeSession,
+  );
   const [closingCash, setClosingCash] = useState("");
   const [notes, setNotes] = useState("");
   const [totalSalesMillieme, setTotalSalesMillieme] = useState(0);
@@ -44,9 +50,13 @@ export function CloseSessionDialog({
     const loadSales = async () => {
       try {
         setIsLoadingSales(true);
-        const total = await invoke<number>("get_session_sales_total_millieme", {
-          sessionId: session.id,
-        });
+        const total = await invoke<number>(
+          "get_session_sales_total_millieme",
+          {
+            sessionId: session.id,
+          },
+          { toast: false },
+        );
 
         if (isMounted) {
           setTotalSalesMillieme(total);
@@ -113,7 +123,9 @@ export function CloseSessionDialog({
           <div className="flex items-center justify-between gap-3 text-sm">
             <span className="text-muted-foreground">إجمالي المبيعات</span>
             <span className="font-medium">
-              {isLoadingSales ? "جارٍ التحميل..." : formatEGP(totalSalesMillieme)}
+              {isLoadingSales
+                ? "جارٍ التحميل..."
+                : formatEGP(totalSalesMillieme)}
             </span>
           </div>
         </div>
@@ -134,7 +146,9 @@ export function CloseSessionDialog({
         </label>
 
         <label className="space-y-2 text-right">
-          <span className="block text-sm font-medium text-foreground">ملاحظات</span>
+          <span className="block text-sm font-medium text-foreground">
+            ملاحظات
+          </span>
           <textarea
             dir="rtl"
             className="min-h-24 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"

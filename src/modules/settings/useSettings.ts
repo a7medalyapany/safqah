@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 
 import { parseAppError } from "@/modules/items/utils";
+import { invoke } from "@/shared/utils/invoke";
 
 type RawSettings = Record<string, string>;
 
@@ -136,7 +136,9 @@ export function useSettings() {
   const settingsQuery = useQuery({
     queryKey: ["settings"],
     queryFn: async () =>
-      normalizeSettings(await invoke<RawSettings>("get_settings")),
+      normalizeSettings(
+        await invoke<RawSettings>("get_settings", undefined, { toast: false }),
+      ),
   });
 
   useEffect(() => {
@@ -153,9 +155,13 @@ export function useSettings() {
 
   const saveSettings = useMutation({
     mutationFn: async (next: SettingsValues) => {
-      await invoke<boolean>("update_settings", {
-        updates: serializeSettings(next),
-      });
+      await invoke<boolean>(
+        "update_settings",
+        {
+          updates: serializeSettings(next),
+        },
+        { toast: false },
+      );
       return next;
     },
     onSuccess: async (next) => {

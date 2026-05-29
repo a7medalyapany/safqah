@@ -1,8 +1,11 @@
-import { invoke } from "@tauri-apps/api/core";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 
-import { ChartSkeleton, ErrorState, ListSkeleton } from "@/modules/dashboard/components/DashboardStates";
+import {
+  ChartSkeleton,
+  ErrorState,
+  ListSkeleton,
+} from "@/modules/dashboard/components/DashboardStates";
 import { KpiCards } from "@/modules/dashboard/components/KpiCards";
 import { LowStockPanel } from "@/modules/dashboard/components/LowStockPanel";
 import { QuickActions } from "@/modules/dashboard/components/QuickActions";
@@ -21,6 +24,7 @@ import type {
 import { buildSalesTrend, lastDays, today } from "@/modules/dashboard/utils";
 import { ItemFormDialog } from "@/modules/items/ItemFormDialog";
 import { SectionCard } from "@/shared/components/SectionCard";
+import { invoke } from "@/shared/utils/invoke";
 
 const STALE_TIME = 2 * 60 * 1000;
 
@@ -44,27 +48,24 @@ export default function DashboardPage() {
         offset: 0,
       };
 
-      const [
-        dailySales,
-        topItems,
-        salesByPeriod,
-        lowStock,
-        recentInvoices,
-      ] = await Promise.all([
-        invoke<DailySalesReport>("report_daily_sales", { date: todayValue }),
-        invoke<TopItemRow[]>("report_top_items", {
-          dateFrom,
-          dateTo,
-          limit: 5,
-        }),
-        invoke<PeriodSalesRow[]>("report_sales_by_period", {
-          dateFrom,
-          dateTo,
-          groupBy: "day",
-        }),
-        invoke<LowStockItem[]>("report_low_stock", { threshold: null }),
-        invoke<InvoiceSummary[]>("list_invoices", { filters: invoiceFilters }),
-      ]);
+      const [dailySales, topItems, salesByPeriod, lowStock, recentInvoices] =
+        await Promise.all([
+          invoke<DailySalesReport>("report_daily_sales", { date: todayValue }),
+          invoke<TopItemRow[]>("report_top_items", {
+            dateFrom,
+            dateTo,
+            limit: 5,
+          }),
+          invoke<PeriodSalesRow[]>("report_sales_by_period", {
+            dateFrom,
+            dateTo,
+            groupBy: "day",
+          }),
+          invoke<LowStockItem[]>("report_low_stock", { threshold: null }),
+          invoke<InvoiceSummary[]>("list_invoices", {
+            filters: invoiceFilters,
+          }),
+        ]);
 
       return {
         dailySales,
@@ -101,7 +102,7 @@ export default function DashboardPage() {
       />
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,3fr)_minmax(320px,2fr)]">
-        <SectionCard title="مبيعات آخر 7 أيام" className="min-h-[380px]">
+        <SectionCard title="مبيعات آخر 7 أيام" className="min-h-95">
           {dashboardQuery.isLoading ? (
             <ChartSkeleton />
           ) : dashboardQuery.isError ? (
@@ -111,7 +112,7 @@ export default function DashboardPage() {
           )}
         </SectionCard>
 
-        <SectionCard title="أكثر المنتجات مبيعاً" className="min-h-[380px]">
+        <SectionCard title="أكثر المنتجات مبيعاً" className="min-h-95">
           {dashboardQuery.isLoading ? (
             <ChartSkeleton />
           ) : dashboardQuery.isError ? (
@@ -138,7 +139,10 @@ export default function DashboardPage() {
         />
       </section>
 
-      <ItemFormDialog open={isItemDialogOpen} onOpenChange={setIsItemDialogOpen} />
+      <ItemFormDialog
+        open={isItemDialogOpen}
+        onOpenChange={setIsItemDialogOpen}
+      />
     </div>
   );
 }

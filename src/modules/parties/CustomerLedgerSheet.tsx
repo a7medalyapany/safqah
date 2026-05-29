@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke } from "@/shared/utils/invoke";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -93,12 +93,8 @@ export function CustomerLedgerSheet({
       <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent dir="rtl" className="w-full sm:max-w-lg">
           <SheetHeader>
-            <SheetTitle>
-              {ledger?.customer.name ?? "سجل العميل"}
-            </SheetTitle>
-            <SheetDescription>
-              سجل المديونية والدفعات للعميل.
-            </SheetDescription>
+            <SheetTitle>{ledger?.customer.name ?? "سجل العميل"}</SheetTitle>
+            <SheetDescription>سجل المديونية والدفعات للعميل.</SheetDescription>
           </SheetHeader>
 
           {ledgerQuery.isLoading || !ledger ? (
@@ -114,9 +110,7 @@ export function CustomerLedgerSheet({
                 <div className="space-y-2 text-sm">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-muted-foreground">الاسم</span>
-                    <span className="font-medium">
-                      {ledger.customer.name}
-                    </span>
+                    <span className="font-medium">{ledger.customer.name}</span>
                   </div>
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-muted-foreground">الهاتف</span>
@@ -193,9 +187,7 @@ export function CustomerLedgerSheet({
               <div>
                 <h3 className="mb-2 text-base font-semibold">سجل الدفعات</h3>
                 {ledger.payments.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">
-                    لا توجد دفعات
-                  </p>
+                  <p className="text-sm text-muted-foreground">لا توجد دفعات</p>
                 ) : (
                   <div className="space-y-2">
                     {ledger.payments.map((payment) => (

@@ -1,5 +1,4 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
 import { Loader2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -14,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import type { Item } from "@/modules/items/types";
 import { parseAppError } from "@/modules/items/utils";
+import { invoke } from "@/shared/utils/invoke";
 
 type DeleteConfirmDialogProps = {
   item: Item | null;
@@ -34,7 +34,7 @@ export function DeleteConfirmDialog({
         return false;
       }
 
-      return invoke<boolean>("delete_item", { id: item.id });
+      return invoke<boolean>("delete_item", { id: item.id }, { toast: false });
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["items"] });

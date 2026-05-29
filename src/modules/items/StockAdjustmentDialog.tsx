@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
 import { CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -15,6 +14,7 @@ import {
 import { Input } from "@/components/ui/input";
 import type { Item } from "@/modules/items/types";
 import { parseAppError } from "@/modules/items/utils";
+import { invoke } from "@/shared/utils/invoke";
 
 type StockAdjustmentDialogProps = {
   item: Item | null;
@@ -45,7 +45,9 @@ export function StockAdjustmentDialog({
     }
 
     const parsed = Number.parseInt(trimmed, 10);
-    return Number.isFinite(parsed) ? Math.max(parsed, 0) : item?.current_stock ?? 0;
+    return Number.isFinite(parsed)
+      ? Math.max(parsed, 0)
+      : (item?.current_stock ?? 0);
   }, [newQty, item]);
 
   const currentStock = item?.current_stock ?? 0;
@@ -79,11 +81,15 @@ export function StockAdjustmentDialog({
         return null;
       }
 
-      return invoke<Item>("adjust_stock", {
-        itemId: item.id,
-        newQty: parsedNewQty,
-        reason: reason.trim() ? reason.trim() : null,
-      });
+      return invoke<Item>(
+        "adjust_stock",
+        {
+          itemId: item.id,
+          newQty: parsedNewQty,
+          reason: reason.trim() ? reason.trim() : null,
+        },
+        { toast: false },
+      );
     },
     onSuccess: async (updatedItem) => {
       await queryClient.invalidateQueries({ queryKey: ["items"] });
@@ -119,7 +125,7 @@ export function StockAdjustmentDialog({
           <DialogTitle>{item?.name_ar ?? "تسوية جرد"}</DialogTitle>
         </DialogHeader>
 
-        <form className="space-y-4" onSubmit={handleSubmit}>
+        <form className="space-y-4" noValidate onSubmit={handleSubmit}>
           <div className="space-y-2 text-right">
             <p className="text-sm text-muted-foreground">
               الكمية الحالية في النظام: {currentStock} قطعة

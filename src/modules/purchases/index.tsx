@@ -7,7 +7,6 @@ import {
   type ReactNode,
 } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
 import {
   Banknote,
   Clock3,
@@ -47,6 +46,7 @@ import type { Category, Item } from "@/modules/items/types";
 import type { Supplier } from "@/modules/parties/types";
 import { formatEGP, toMillieme } from "@/shared/utils/money";
 import { useSessionStore } from "@/store/sessionSlice";
+import { invoke } from "@/shared/utils/invoke";
 
 const PAGE_SIZE = 50;
 
@@ -588,9 +588,7 @@ function PurchaseFormDialog({
     onError: (error) => {
       const appError = parseAppError(error);
       toast.error(appError.message_ar);
-      if (appError.message_en) {
-        console.error(appError.message_en);
-      }
+      console.error(appError);
     },
   });
 
@@ -804,7 +802,7 @@ function PurchaseFormDialog({
             {tab === "existing" ? (
               <div className="mt-4 space-y-3">
                 <div className="relative">
-                  <Search className="absolute end-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Search className="absolute inset-e-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     dir="rtl"
                     className="pe-9"
@@ -1037,7 +1035,7 @@ function PurchaseFormDialog({
           </div>
 
           <div className="rounded-xl border bg-muted/10 p-4">
-            <div className="grid gap-3 md:grid-cols-[repeat(2,minmax(0,1fr))]">
+            <div className="grid gap-3 md:grid-cols-2">
               <SummaryRow
                 label="المجموع الفرعي"
                 value={formatEGP(subtotalMillieme)}
@@ -1236,12 +1234,16 @@ function PriceUpdateDialog({
     mutationFn: async () => {
       await Promise.all(
         suggestions.map((item) =>
-          invoke("update_item", {
-            id: item.itemId,
-            payload: {
-              sell_price_millieme: item.suggestedSellPriceMillieme,
+          invoke(
+            "update_item",
+            {
+              id: item.itemId,
+              payload: {
+                sell_price_millieme: item.suggestedSellPriceMillieme,
+              },
             },
-          }),
+            { toast: false },
+          ),
         ),
       );
     },

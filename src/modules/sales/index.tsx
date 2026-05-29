@@ -1,6 +1,5 @@
 import { useDeferredValue, useEffect, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
 import {
   Banknote,
   Clock3,
@@ -37,6 +36,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { parseAppError } from "@/modules/items/utils";
 import { formatEGP } from "@/shared/utils/money";
+import { invoke } from "@/shared/utils/invoke";
 
 const PAGE_SIZE = 50;
 
@@ -140,7 +140,9 @@ export default function SalesPage() {
   const [status, setStatus] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
-  const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(null);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<number | null>(
+    null,
+  );
 
   const deferredCustomerSearch = useDeferredValue(customerSearch);
 
@@ -201,7 +203,9 @@ export default function SalesPage() {
   return (
     <div className="space-y-6 p-6">
       <header className="space-y-2">
-        <h1 className="text-3xl font-semibold tracking-tight">فواتير المبيعات</h1>
+        <h1 className="text-3xl font-semibold tracking-tight">
+          فواتير المبيعات
+        </h1>
         <p className="text-sm text-muted-foreground">
           متابعة فواتير البيع، حالات السداد، والمديونيات المرتبطة بالعملاء.
         </p>
@@ -225,14 +229,16 @@ export default function SalesPage() {
         />
         <StatCard
           title="إجمالي المبيعات"
-          value={statsQuery.isLoading ? "..." : formatEGP(stats.total_sales_millieme)}
+          value={
+            statsQuery.isLoading ? "..." : formatEGP(stats.total_sales_millieme)
+          }
           icon={<CreditCard className="size-5" />}
         />
       </section>
 
       <Card className="border-none bg-transparent p-0 shadow-none ring-0">
         <CardContent className="space-y-4 px-0">
-          <div className="grid gap-3 rounded-2xl border bg-card p-4 md:grid-cols-2 xl:grid-cols-[repeat(5,minmax(0,1fr))]">
+          <div className="grid gap-3 rounded-2xl border bg-card p-4 md:grid-cols-2 xl:grid-cols-5">
             <FilterField label="من تاريخ">
               <Input
                 type="date"
@@ -249,7 +255,7 @@ export default function SalesPage() {
             </FilterField>
             <FilterField label="العميل">
               <div className="relative">
-                <Search className="absolute end-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Search className="absolute inset-e-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   dir="rtl"
                   className="pe-9"
@@ -316,7 +322,9 @@ export default function SalesPage() {
                         <td colSpan={9} className="px-6 py-16">
                           <div className="flex flex-col items-center justify-center gap-3 text-center">
                             <ReceiptText className="size-10 text-muted-foreground" />
-                            <p className="text-base font-medium">لا توجد فواتير</p>
+                            <p className="text-base font-medium">
+                              لا توجد فواتير
+                            </p>
                           </div>
                         </td>
                       </tr>
@@ -329,10 +337,18 @@ export default function SalesPage() {
                           <TableCell className="font-medium text-foreground">
                             {invoice.invoice_number}
                           </TableCell>
-                          <TableCell>{invoice.customer_name || "عميل عام"}</TableCell>
-                          <TableCell>{formatEGP(invoice.total_millieme)}</TableCell>
-                          <TableCell>{formatEGP(invoice.paid_millieme)}</TableCell>
-                          <TableCell>{formatEGP(getRemainingMillieme(invoice))}</TableCell>
+                          <TableCell>
+                            {invoice.customer_name || "عميل عام"}
+                          </TableCell>
+                          <TableCell>
+                            {formatEGP(invoice.total_millieme)}
+                          </TableCell>
+                          <TableCell>
+                            {formatEGP(invoice.paid_millieme)}
+                          </TableCell>
+                          <TableCell>
+                            {formatEGP(getRemainingMillieme(invoice))}
+                          </TableCell>
                           <TableCell>
                             {paymentMethodLabels[invoice.payment_method] ??
                               invoice.payment_method}
@@ -340,7 +356,9 @@ export default function SalesPage() {
                           <TableCell>
                             <StatusBadge status={invoice.status} />
                           </TableCell>
-                          <TableCell>{formatDate(invoice.created_at)}</TableCell>
+                          <TableCell>
+                            {formatDate(invoice.created_at)}
+                          </TableCell>
                           <TableCell>
                             <Button
                               variant="ghost"
@@ -364,7 +382,9 @@ export default function SalesPage() {
             <div className="flex justify-center">
               <Button
                 variant="outline"
-                onClick={() => setVisibleLimit((current) => current + PAGE_SIZE)}
+                onClick={() =>
+                  setVisibleLimit((current) => current + PAGE_SIZE)
+                }
                 disabled={invoicesQuery.isFetching}
               >
                 تحميل المزيد
@@ -427,7 +447,11 @@ function InvoiceDetailSheet({
     }
 
     try {
-      await invoke("print_receipt", { invoiceId: invoice.id });
+      await invoke(
+        "print_receipt",
+        { invoiceId: invoice.id },
+        { toast: false },
+      );
       toast.success("جاري الطباعة...");
     } catch {
       toast.error("تعذر إرسال أمر الطباعة");
@@ -438,9 +462,13 @@ function InvoiceDetailSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent dir="rtl">
         <SheetHeader>
-          <SheetTitle>{invoice?.invoice_number ?? "تفاصيل الفاتورة"}</SheetTitle>
+          <SheetTitle>
+            {invoice?.invoice_number ?? "تفاصيل الفاتورة"}
+          </SheetTitle>
           <SheetDescription>
-            {invoice ? formatDate(invoice.created_at) : "جارٍ تحميل بيانات الفاتورة..."}
+            {invoice
+              ? formatDate(invoice.created_at)
+              : "جارٍ تحميل بيانات الفاتورة..."}
           </SheetDescription>
         </SheetHeader>
 
@@ -482,7 +510,9 @@ function InvoiceDetailSheet({
                       </TableCell>
                       <TableCell>{item.qty}</TableCell>
                       <TableCell>{item.returned_qty}</TableCell>
-                      <TableCell>{formatEGP(item.unit_price_millieme)}</TableCell>
+                      <TableCell>
+                        {formatEGP(item.unit_price_millieme)}
+                      </TableCell>
                       <TableCell>{formatEGP(item.discount_millieme)}</TableCell>
                       <TableCell>{formatEGP(item.total_millieme)}</TableCell>
                     </tr>
@@ -492,11 +522,24 @@ function InvoiceDetailSheet({
             </div>
 
             <div className="space-y-2 rounded-lg border bg-muted/20 p-4">
-              <SummaryRow label="المجموع الفرعي" value={formatEGP(invoice.subtotal_millieme)} />
-              <SummaryRow label="الخصم" value={formatEGP(invoice.discount_millieme)} />
+              <SummaryRow
+                label="المجموع الفرعي"
+                value={formatEGP(invoice.subtotal_millieme)}
+              />
+              <SummaryRow
+                label="الخصم"
+                value={formatEGP(invoice.discount_millieme)}
+              />
               <Separator />
-              <SummaryRow label="الإجمالي" value={formatEGP(invoice.total_millieme)} strong />
-              <SummaryRow label="المدفوع" value={formatEGP(invoice.paid_millieme)} />
+              <SummaryRow
+                label="الإجمالي"
+                value={formatEGP(invoice.total_millieme)}
+                strong
+              />
+              <SummaryRow
+                label="المدفوع"
+                value={formatEGP(invoice.paid_millieme)}
+              />
               <SummaryRow
                 label="المتبقي"
                 value={formatEGP(getRemainingMillieme(invoice))}
@@ -504,10 +547,7 @@ function InvoiceDetailSheet({
             </div>
 
             <div className="grid gap-2 sm:grid-cols-2">
-              <Button
-                variant="outline"
-                onClick={() => void handlePrint()}
-              >
+              <Button variant="outline" onClick={() => void handlePrint()}>
                 <Printer />
                 طباعة الفاتورة
               </Button>
@@ -570,21 +610,26 @@ function ReturnDialog({
     setRefundMethod(invoice.customer_id ? "credit" : "cash");
   }, [invoice, open]);
 
-  const returnableItems = invoice.items.filter((item) => getReturnableQty(item) > 0);
+  const returnableItems = invoice.items.filter(
+    (item) => getReturnableQty(item) > 0,
+  );
   const selectedItems = returnableItems.filter((item) => selected[item.id]);
   const selectedTotal = selectedItems.reduce(
-    (total, item) => total + item.unit_price_millieme * (quantities[item.id] ?? 0),
+    (total, item) =>
+      total + item.unit_price_millieme * (quantities[item.id] ?? 0),
     0,
   );
 
   const createReturnMutation = useMutation({
     mutationFn: (payload: CreateReturnPayload) =>
-      invoke<SaleReturn>("create_return", { payload }),
+      invoke<SaleReturn>("create_return", { payload }, { toast: false }),
     onSuccess: async () => {
       toast.success("تم تسجيل المرتجع بنجاح");
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["invoices"] }),
-        queryClient.invalidateQueries({ queryKey: ["invoice-detail", invoice.id] }),
+        queryClient.invalidateQueries({
+          queryKey: ["invoice-detail", invoice.id],
+        }),
         queryClient.invalidateQueries({ queryKey: ["invoice-stats"] }),
         queryClient.invalidateQueries({ queryKey: ["items"] }),
       ]);
@@ -626,7 +671,10 @@ function ReturnDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent dir="rtl" className="max-h-[88vh] overflow-y-auto sm:max-w-2xl">
+      <DialogContent
+        dir="rtl"
+        className="max-h-[88vh] overflow-y-auto sm:max-w-2xl"
+      >
         <DialogHeader>
           <DialogTitle>إنشاء مرتجع</DialogTitle>
           <DialogDescription>
@@ -664,7 +712,9 @@ function ReturnDialog({
                         }
                       />
                       <span className="min-w-0 space-y-1">
-                        <span className="block truncate font-medium">{item.item_name_ar}</span>
+                        <span className="block truncate font-medium">
+                          {item.item_name_ar}
+                        </span>
                         <span className="block text-xs text-muted-foreground">
                           الكمية الأصلية: {item.qty} | متاح للمرتجع: {maxQty}
                         </span>
@@ -678,7 +728,9 @@ function ReturnDialog({
                         max={maxQty}
                         value={quantities[item.id] ?? 1}
                         disabled={!selected[item.id]}
-                        onChange={(event) => updateQuantity(item, event.target.value)}
+                        onChange={(event) =>
+                          updateQuantity(item, event.target.value)
+                        }
                       />
                     </FilterField>
                   </div>
@@ -705,7 +757,9 @@ function ReturnDialog({
                       </TableCell>
                       <TableCell>{quantities[item.id] ?? 1}</TableCell>
                       <TableCell>
-                        {formatEGP(item.unit_price_millieme * (quantities[item.id] ?? 1))}
+                        {formatEGP(
+                          item.unit_price_millieme * (quantities[item.id] ?? 1),
+                        )}
                       </TableCell>
                     </tr>
                   ))}
@@ -714,13 +768,19 @@ function ReturnDialog({
             </div>
 
             <div className="space-y-2 rounded-lg border bg-muted/20 p-4">
-              <SummaryRow label="إجمالي المرتجع" value={formatEGP(selectedTotal)} strong />
+              <SummaryRow
+                label="إجمالي المرتجع"
+                value={formatEGP(selectedTotal)}
+                strong
+              />
               <FilterField label="طريقة رد المبلغ">
                 <select
                   dir="rtl"
                   className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
                   value={refundMethod}
-                  onChange={(event) => setRefundMethod(event.target.value as RefundMethod)}
+                  onChange={(event) =>
+                    setRefundMethod(event.target.value as RefundMethod)
+                  }
                 >
                   <option value="cash">نقدي</option>
                   <option value="credit" disabled={!invoice.customer_id}>
@@ -745,12 +805,17 @@ function ReturnDialog({
           {step === 1 ? (
             <Button
               onClick={() => setStep(2)}
-              disabled={selectedItems.length === 0 || createReturnMutation.isPending}
+              disabled={
+                selectedItems.length === 0 || createReturnMutation.isPending
+              }
             >
               التالي
             </Button>
           ) : (
-            <Button onClick={handleConfirm} disabled={createReturnMutation.isPending}>
+            <Button
+              onClick={handleConfirm}
+              disabled={createReturnMutation.isPending}
+            >
               <RotateCcw />
               تأكيد المرتجع
             </Button>
@@ -851,7 +916,9 @@ function TableCell({
   children: ReactNode;
   className?: string;
 }) {
-  return <td className={`px-4 py-3 align-middle ${className ?? ""}`}>{children}</td>;
+  return (
+    <td className={`px-4 py-3 align-middle ${className ?? ""}`}>{children}</td>
+  );
 }
 
 function getStatusTone(status: InvoiceStatus) {
@@ -870,11 +937,15 @@ function getStatusTone(status: InvoiceStatus) {
   return "border-destructive/20 bg-destructive/10 text-destructive";
 }
 
-function getRemainingMillieme(invoice: Pick<InvoiceSummary, "total_millieme" | "paid_millieme">) {
+function getRemainingMillieme(
+  invoice: Pick<InvoiceSummary, "total_millieme" | "paid_millieme">,
+) {
   return Math.max(invoice.total_millieme - invoice.paid_millieme, 0);
 }
 
-function getReturnableQty(item: Pick<InvoiceItemDetail, "qty" | "returned_qty">) {
+function getReturnableQty(
+  item: Pick<InvoiceItemDetail, "qty" | "returned_qty">,
+) {
   return Math.max(item.qty - item.returned_qty, 0);
 }
 

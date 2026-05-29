@@ -1,4 +1,3 @@
-import { invoke } from "@tauri-apps/api/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
@@ -51,6 +50,7 @@ import { formatEGP, toMillieme } from "@/shared/utils/money";
 import { exportToCsv } from "@/shared/utils/exportCsv";
 import { printReport } from "@/shared/utils/printReport";
 import { SectionCard } from "@/shared/components/SectionCard";
+import { invoke } from "@/shared/utils/invoke";
 import { useSessionStore } from "@/store/sessionSlice";
 
 type ReportView =
@@ -338,14 +338,22 @@ export default function ReportsPage() {
   );
 }
 
-function ReportViewScreen({ view, onBack }: { view: ReportView; onBack: () => void }) {
+function ReportViewScreen({
+  view,
+  onBack,
+}: {
+  view: ReportView;
+  onBack: () => void;
+}) {
   if (view === "daily") return <DailySalesReportView onBack={onBack} />;
   if (view === "top-items") return <TopItemsReportView onBack={onBack} />;
   if (view === "profit") return <ProfitReportView onBack={onBack} />;
   if (view === "expenses") return <ExpenseSummaryView onBack={onBack} />;
   if (view === "payments") return <PaymentMethodsReportView onBack={onBack} />;
-  if (view === "customers") return <BalancesReportView kind="customer" onBack={onBack} />;
-  if (view === "suppliers") return <BalancesReportView kind="supplier" onBack={onBack} />;
+  if (view === "customers")
+    return <BalancesReportView kind="customer" onBack={onBack} />;
+  if (view === "suppliers")
+    return <BalancesReportView kind="supplier" onBack={onBack} />;
   if (view === "low-stock") return <LowStockReportView onBack={onBack} />;
 
   const initialGroup: GroupBy =
@@ -457,19 +465,50 @@ function DailySalesReportView({ onBack }: { onBack: () => void }) {
       description="مؤشرات اليوم حسب عدد الفواتير وطريقة الدفع."
       onBack={onBack}
     >
-      <FilterPanel onSubmit={() => setSubmittedDate(date)} isLoading={reportQuery.isFetching}>
+      <FilterPanel
+        onSubmit={() => setSubmittedDate(date)}
+        isLoading={reportQuery.isFetching}
+      >
         <FilterField label="التاريخ">
-          <Input type="date" value={date} onChange={(event) => setDate(event.target.value)} />
+          <Input
+            type="date"
+            value={date}
+            onChange={(event) => setDate(event.target.value)}
+          />
         </FilterField>
       </FilterPanel>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-6">
-        <KpiCard title="عدد الفواتير" value={report?.invoice_count ?? 0} icon={<FileText />} />
-        <KpiCard title="إجمالي المبيعات" value={formatEGP(report?.total_millieme ?? 0)} icon={<Banknote />} />
-        <KpiCard title="نقدي" value={formatEGP(report?.cash_millieme ?? 0)} icon={<Banknote />} />
-        <KpiCard title="فيزا" value={formatEGP(report?.card_millieme ?? 0)} icon={<CreditCard />} />
-        <KpiCard title="آجل" value={formatEGP(report?.deferred_millieme ?? 0)} icon={<WalletCards />} />
-        <KpiCard title="متوسط الفاتورة" value={formatEGP(report?.avg_invoice_millieme ?? 0)} icon={<Receipt />} />
+        <KpiCard
+          title="عدد الفواتير"
+          value={report?.invoice_count ?? 0}
+          icon={<FileText />}
+        />
+        <KpiCard
+          title="إجمالي المبيعات"
+          value={formatEGP(report?.total_millieme ?? 0)}
+          icon={<Banknote />}
+        />
+        <KpiCard
+          title="نقدي"
+          value={formatEGP(report?.cash_millieme ?? 0)}
+          icon={<Banknote />}
+        />
+        <KpiCard
+          title="فيزا"
+          value={formatEGP(report?.card_millieme ?? 0)}
+          icon={<CreditCard />}
+        />
+        <KpiCard
+          title="آجل"
+          value={formatEGP(report?.deferred_millieme ?? 0)}
+          icon={<WalletCards />}
+        />
+        <KpiCard
+          title="متوسط الفاتورة"
+          value={formatEGP(report?.avg_invoice_millieme ?? 0)}
+          icon={<Receipt />}
+        />
       </section>
 
       <DataTable
@@ -489,14 +528,11 @@ function DailySalesReportView({ onBack }: { onBack: () => void }) {
       <ReportActions
         disabled={!report}
         onExportCsv={() =>
-          exportToCsv(`تقرير_مبيعات_${submittedDate}.csv`, [
-            "التاريخ",
-            "عدد الفواتير",
-            "الإجمالي",
-            "نقدي",
-            "فيزا",
-            "آجل",
-          ], reportRows)
+          exportToCsv(
+            `تقرير_مبيعات_${submittedDate}.csv`,
+            ["التاريخ", "عدد الفواتير", "الإجمالي", "نقدي", "فيزا", "آجل"],
+            reportRows,
+          )
         }
         onPrint={() => printTable("تقرير المبيعات اليومية", tableRef.current)}
       />
@@ -564,7 +600,9 @@ function PeriodSalesReportView({
                 onClick={() => setGroupBy(value)}
                 className={cn(
                   "flex-1 rounded-md px-3 py-1.5 text-sm transition-colors",
-                  groupBy === value ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-muted",
+                  groupBy === value
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-muted",
                 )}
               >
                 {groupLabels[value]}
@@ -596,14 +634,15 @@ function PeriodSalesReportView({
       <ReportActions
         disabled={rows.length === 0}
         onExportCsv={() =>
-          exportToCsv(`مبيعات_${groupLabels[params.groupBy]}_${params.dateFrom}_${params.dateTo}.csv`, [
-            "الفترة",
-            "عدد الفواتير",
-            "الإجمالي",
-            "الخصم",
-          ], csvRows)
+          exportToCsv(
+            `مبيعات_${groupLabels[params.groupBy]}_${params.dateFrom}_${params.dateTo}.csv`,
+            ["الفترة", "عدد الفواتير", "الإجمالي", "الخصم"],
+            csvRows,
+          )
         }
-        onPrint={() => printTable("تقرير المبيعات حسب الفترة", tableRef.current)}
+        onPrint={() =>
+          printTable("تقرير المبيعات حسب الفترة", tableRef.current)
+        }
       />
     </ReportShell>
   );
@@ -676,12 +715,18 @@ function TopItemsReportView({ onBack }: { onBack: () => void }) {
       >
         {rows.map((row) => (
           <tr key={row.item_id} className="border-t">
-            <TableCell className="font-medium text-foreground">{row.name_ar}</TableCell>
+            <TableCell className="font-medium text-foreground">
+              {row.name_ar}
+            </TableCell>
             <TableCell>{row.total_qty_sold}</TableCell>
             <TableCell>{formatEGP(row.total_revenue_millieme)}</TableCell>
             <TableCell>{formatEGP(row.total_cost_millieme)}</TableCell>
             <TableCell
-              className={row.gross_profit_millieme >= 0 ? "text-emerald-600" : "text-destructive"}
+              className={
+                row.gross_profit_millieme >= 0
+                  ? "text-emerald-600"
+                  : "text-destructive"
+              }
             >
               {formatEGP(row.gross_profit_millieme)}
             </TableCell>
@@ -692,13 +737,11 @@ function TopItemsReportView({ onBack }: { onBack: () => void }) {
       <ReportActions
         disabled={rows.length === 0}
         onExportCsv={() =>
-          exportToCsv(`أفضل_الأصناف_${params.dateFrom}_${params.dateTo}.csv`, [
-            "الصنف",
-            "الكمية المباعة",
-            "الإيراد",
-            "التكلفة",
-            "الربح",
-          ], csvRows)
+          exportToCsv(
+            `أفضل_الأصناف_${params.dateFrom}_${params.dateTo}.csv`,
+            ["الصنف", "الكمية المباعة", "الإيراد", "التكلفة", "الربح"],
+            csvRows,
+          )
         }
         onPrint={() => printTable("أفضل المنتجات مبيعاً", tableRef.current)}
       />
@@ -725,7 +768,10 @@ function ProfitReportView({ onBack }: { onBack: () => void }) {
   const pieData = report
     ? [
         { name: "صافي الإيراد", value: egpValue(report.net_revenue_millieme) },
-        { name: "تكلفة البضاعة", value: egpValue(report.cost_of_goods_millieme) },
+        {
+          name: "تكلفة البضاعة",
+          value: egpValue(report.cost_of_goods_millieme),
+        },
         { name: "المصروفات", value: egpValue(report.total_expenses_millieme) },
       ]
     : [];
@@ -761,10 +807,26 @@ function ProfitReportView({ onBack }: { onBack: () => void }) {
       </FilterPanel>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <KpiCard title="الإيراد الإجمالي" value={formatEGP(report?.gross_revenue_millieme ?? 0)} icon={<Banknote />} />
-        <KpiCard title="صافي الإيراد" value={formatEGP(report?.net_revenue_millieme ?? 0)} icon={<Receipt />} />
-        <KpiCard title="تكلفة البضاعة" value={formatEGP(report?.cost_of_goods_millieme ?? 0)} icon={<PackageSearch />} />
-        <KpiCard title="إجمالي المصروفات" value={formatEGP(report?.total_expenses_millieme ?? 0)} icon={<WalletCards />} />
+        <KpiCard
+          title="الإيراد الإجمالي"
+          value={formatEGP(report?.gross_revenue_millieme ?? 0)}
+          icon={<Banknote />}
+        />
+        <KpiCard
+          title="صافي الإيراد"
+          value={formatEGP(report?.net_revenue_millieme ?? 0)}
+          icon={<Receipt />}
+        />
+        <KpiCard
+          title="تكلفة البضاعة"
+          value={formatEGP(report?.cost_of_goods_millieme ?? 0)}
+          icon={<PackageSearch />}
+        />
+        <KpiCard
+          title="إجمالي المصروفات"
+          value={formatEGP(report?.total_expenses_millieme ?? 0)}
+          icon={<WalletCards />}
+        />
       </section>
 
       <Card>
@@ -774,7 +836,9 @@ function ProfitReportView({ onBack }: { onBack: () => void }) {
             <p
               className={cn(
                 "mt-2 text-4xl font-bold",
-                (report?.net_profit_millieme ?? 0) >= 0 ? "text-emerald-600" : "text-destructive",
+                (report?.net_profit_millieme ?? 0) >= 0
+                  ? "text-emerald-600"
+                  : "text-destructive",
               )}
             >
               {formatEGP(report?.net_profit_millieme ?? 0)}
@@ -799,10 +863,11 @@ function ProfitReportView({ onBack }: { onBack: () => void }) {
       <ReportActions
         disabled={!report}
         onExportCsv={() =>
-          exportToCsv(`تحليل_الأرباح_${params.dateFrom}_${params.dateTo}.csv`, [
-            "البند",
-            "القيمة",
-          ], csvRows)
+          exportToCsv(
+            `تحليل_الأرباح_${params.dateFrom}_${params.dateTo}.csv`,
+            ["البند", "القيمة"],
+            csvRows,
+          )
         }
         onPrint={() => printTable("تحليل الأرباح", tableRef.current)}
       />
@@ -838,7 +903,10 @@ function ExpenseSummaryView({ onBack }: { onBack: () => void }) {
       .sort((a, b) => b.amount_millieme - a.amount_millieme);
   }, [rows]);
   const total = summary.reduce((sum, row) => sum + row.amount_millieme, 0);
-  const csvRows = summary.map((row) => [row.category, formatEGP(row.amount_millieme)]);
+  const csvRows = summary.map((row) => [
+    row.category,
+    formatEGP(row.amount_millieme),
+  ]);
 
   return (
     <ReportShell
@@ -858,7 +926,11 @@ function ExpenseSummaryView({ onBack }: { onBack: () => void }) {
         />
       </FilterPanel>
 
-      <KpiCard title="إجمالي المصروفات" value={formatEGP(total)} icon={<Receipt />} />
+      <KpiCard
+        title="إجمالي المصروفات"
+        value={formatEGP(total)}
+        icon={<Receipt />}
+      />
       <ChartCard title="توزيع المصروفات">
         <PieChartBox
           data={summary.map((row) => ({
@@ -867,7 +939,11 @@ function ExpenseSummaryView({ onBack }: { onBack: () => void }) {
           }))}
         />
       </ChartCard>
-      <DataTable ref={tableRef} columns={["التصنيف", "الإجمالي"]} empty={summary.length === 0}>
+      <DataTable
+        ref={tableRef}
+        columns={["التصنيف", "الإجمالي"]}
+        empty={summary.length === 0}
+      >
         {summary.map((row) => (
           <tr key={row.category} className="border-t">
             <TableCell>{row.category}</TableCell>
@@ -878,10 +954,11 @@ function ExpenseSummaryView({ onBack }: { onBack: () => void }) {
       <ReportActions
         disabled={summary.length === 0}
         onExportCsv={() =>
-          exportToCsv(`ملخص_المصروفات_${params.dateFrom}_${params.dateTo}.csv`, [
-            "التصنيف",
-            "الإجمالي",
-          ], csvRows)
+          exportToCsv(
+            `ملخص_المصروفات_${params.dateFrom}_${params.dateTo}.csv`,
+            ["التصنيف", "الإجمالي"],
+            csvRows,
+          )
         }
         onPrint={() => printTable("ملخص المصروفات", tableRef.current)}
       />
@@ -946,7 +1023,9 @@ function PaymentMethodsReportView({ onBack }: { onBack: () => void }) {
       >
         {rows.map((row) => (
           <tr key={row.method} className="border-t">
-            <TableCell>{paymentMethodLabels[row.method] ?? row.method}</TableCell>
+            <TableCell>
+              {paymentMethodLabels[row.method] ?? row.method}
+            </TableCell>
             <TableCell>{row.invoice_count}</TableCell>
             <TableCell>{formatEGP(row.total_millieme)}</TableCell>
             <TableCell>{row.percentage.toFixed(2)}%</TableCell>
@@ -956,12 +1035,11 @@ function PaymentMethodsReportView({ onBack }: { onBack: () => void }) {
       <ReportActions
         disabled={rows.length === 0}
         onExportCsv={() =>
-          exportToCsv(`طرق_الدفع_${params.dateFrom}_${params.dateTo}.csv`, [
-            "طريقة الدفع",
-            "عدد الفواتير",
-            "الإجمالي",
-            "النسبة",
-          ], csvRows)
+          exportToCsv(
+            `طرق_الدفع_${params.dateFrom}_${params.dateTo}.csv`,
+            ["طريقة الدفع", "عدد الفواتير", "الإجمالي", "النسبة"],
+            csvRows,
+          )
         }
         onPrint={() => printTable("تقرير طرق الدفع", tableRef.current)}
       />
@@ -969,11 +1047,21 @@ function PaymentMethodsReportView({ onBack }: { onBack: () => void }) {
   );
 }
 
-function BalancesReportView({ kind, onBack }: { kind: BalanceKind; onBack: () => void }) {
+function BalancesReportView({
+  kind,
+  onBack,
+}: {
+  kind: BalanceKind;
+  onBack: () => void;
+}) {
   const [selectedRow, setSelectedRow] = useState<BalanceRow | null>(null);
   const tableRef = useRef<HTMLTableElement>(null);
-  const title = kind === "customer" ? "تقرير ديون العملاء" : "تقرير ديون الموردين";
-  const command = kind === "customer" ? "report_customer_balances" : "report_supplier_balances";
+  const title =
+    kind === "customer" ? "تقرير ديون العملاء" : "تقرير ديون الموردين";
+  const command =
+    kind === "customer"
+      ? "report_customer_balances"
+      : "report_supplier_balances";
 
   const reportQuery = useQuery({
     queryKey: ["report-balances", kind],
@@ -997,18 +1085,31 @@ function BalancesReportView({ kind, onBack }: { kind: BalanceKind; onBack: () =>
     >
       <DataTable
         ref={tableRef}
-        columns={["الاسم", "الهاتف", "المديونية", "عدد الفواتير", "أقدم فاتورة", "الإجراءات"]}
+        columns={[
+          "الاسم",
+          "الهاتف",
+          "المديونية",
+          "عدد الفواتير",
+          "أقدم فاتورة",
+          "الإجراءات",
+        ]}
         empty={rows.length === 0}
       >
         {rows.map((row) => (
           <tr key={row.customer_id ?? row.supplier_id} className="border-t">
-            <TableCell className="font-medium text-foreground">{row.name}</TableCell>
+            <TableCell className="font-medium text-foreground">
+              {row.name}
+            </TableCell>
             <TableCell>{row.phone || "—"}</TableCell>
             <TableCell>{formatEGP(row.balance_millieme)}</TableCell>
             <TableCell>{row.deferred_invoice_count}</TableCell>
             <TableCell>{row.oldest_invoice_date || "—"}</TableCell>
             <TableCell>
-              <Button size="sm" variant="outline" onClick={() => setSelectedRow(row)}>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setSelectedRow(row)}
+              >
                 تسجيل دفعة
               </Button>
             </TableCell>
@@ -1016,7 +1117,9 @@ function BalancesReportView({ kind, onBack }: { kind: BalanceKind; onBack: () =>
         ))}
         {rows.length > 0 ? (
           <tr className="border-t bg-muted/40 font-semibold">
-            <TableCell colSpan={6}>إجمالي المديونيات: {formatEGP(total)}</TableCell>
+            <TableCell colSpan={6}>
+              إجمالي المديونيات: {formatEGP(total)}
+            </TableCell>
           </tr>
         ) : null}
       </DataTable>
@@ -1024,12 +1127,16 @@ function BalancesReportView({ kind, onBack }: { kind: BalanceKind; onBack: () =>
       <ReportActions
         disabled={rows.length === 0}
         onExportCsv={() =>
-          exportToCsv(`${kind === "customer" ? "مديونيات_العملاء" : "مديونيات_الموردين"}_${today()}.csv`, [
-            kind === "customer" ? "العميل" : "المورد",
-            "الهاتف",
-            "المديونية",
-            "عدد الفواتير",
-          ], csvRows)
+          exportToCsv(
+            `${kind === "customer" ? "مديونيات_العملاء" : "مديونيات_الموردين"}_${today()}.csv`,
+            [
+              kind === "customer" ? "العميل" : "المورد",
+              "الهاتف",
+              "المديونية",
+              "عدد الفواتير",
+            ],
+            csvRows,
+          )
         }
         onPrint={() => printTable(title, tableRef.current)}
       />
@@ -1048,7 +1155,8 @@ function LowStockReportView({ onBack }: { onBack: () => void }) {
   const tableRef = useRef<HTMLTableElement>(null);
   const reportQuery = useQuery({
     queryKey: ["report-low-stock"],
-    queryFn: () => invoke<LowStockItem[]>("report_low_stock", { threshold: null }),
+    queryFn: () =>
+      invoke<LowStockItem[]>("report_low_stock", { threshold: null }),
   });
 
   const rows = reportQuery.data ?? [];
@@ -1067,12 +1175,21 @@ function LowStockReportView({ onBack }: { onBack: () => void }) {
     >
       <DataTable
         ref={tableRef}
-        columns={["الصنف", "المخزون الحالي", "الحد الأدنى", "النقص", "آخر بيع", "الإجراءات"]}
+        columns={[
+          "الصنف",
+          "المخزون الحالي",
+          "الحد الأدنى",
+          "النقص",
+          "آخر بيع",
+          "الإجراءات",
+        ]}
         empty={rows.length === 0}
       >
         {rows.map((row) => (
           <tr key={row.item_id} className="border-t">
-            <TableCell className="font-medium text-foreground">{row.name_ar}</TableCell>
+            <TableCell className="font-medium text-foreground">
+              {row.name_ar}
+            </TableCell>
             <TableCell>{row.current_stock}</TableCell>
             <TableCell>{row.min_stock}</TableCell>
             <TableCell>
@@ -1086,7 +1203,9 @@ function LowStockReportView({ onBack }: { onBack: () => void }) {
                 size="sm"
                 variant="outline"
                 onClick={() =>
-                  toast.info("إضافة شراء مبدئية لهذا الصنف تحتاج تصدير PurchaseFormDialog من شاشة المشتريات")
+                  toast.info(
+                    "إضافة شراء مبدئية لهذا الصنف تحتاج تصدير PurchaseFormDialog من شاشة المشتريات",
+                  )
                 }
               >
                 إضافة شراء
@@ -1098,12 +1217,11 @@ function LowStockReportView({ onBack }: { onBack: () => void }) {
       <ReportActions
         disabled={rows.length === 0}
         onExportCsv={() =>
-          exportToCsv(`مخزون_منخفض_${today()}.csv`, [
-            "الصنف",
-            "المخزون الحالي",
-            "الحد الأدنى",
-            "النقص",
-          ], csvRows)
+          exportToCsv(
+            `مخزون_منخفض_${today()}.csv`,
+            ["الصنف", "المخزون الحالي", "الحد الأدنى", "النقص"],
+            csvRows,
+          )
         }
         onPrint={() => printTable("تقرير المخزون المنخفض", tableRef.current)}
       />
@@ -1128,22 +1246,31 @@ function BalancePaymentDialog({
   const mutation = useMutation({
     mutationFn: () => {
       if (!row) throw new Error("No row selected");
-      const command = kind === "customer" ? "record_customer_payment" : "record_supplier_payment";
-      return invoke(command, {
-        customerId: row.customer_id,
-        supplierId: row.supplier_id,
-        amountMillieme: toMillieme(amount),
-        method,
-        notes: null,
-        sessionId: activeSession?.id ?? null,
-      });
+      const command =
+        kind === "customer"
+          ? "record_customer_payment"
+          : "record_supplier_payment";
+      return invoke(
+        command,
+        {
+          customerId: row.customer_id,
+          supplierId: row.supplier_id,
+          amountMillieme: toMillieme(amount),
+          method,
+          notes: null,
+          sessionId: activeSession?.id ?? null,
+        },
+        { toast: false },
+      );
     },
     onSuccess: () => {
       toast.success("تم تسجيل الدفعة");
       setAmount("");
       onOpenChange(false);
       queryClient.invalidateQueries({ queryKey: ["report-balances", kind] });
-      queryClient.invalidateQueries({ queryKey: [kind === "customer" ? "customers" : "suppliers"] });
+      queryClient.invalidateQueries({
+        queryKey: [kind === "customer" ? "customers" : "suppliers"],
+      });
     },
     onError: () => toast.error("تعذر تسجيل الدفعة"),
   });
@@ -1154,7 +1281,9 @@ function BalancePaymentDialog({
         <DialogHeader className="text-right">
           <DialogTitle>تسجيل دفعة</DialogTitle>
           <DialogDescription>
-            {row ? `${row.name} — الرصيد الحالي ${formatEGP(row.balance_millieme)}` : ""}
+            {row
+              ? `${row.name} — الرصيد الحالي ${formatEGP(row.balance_millieme)}`
+              : ""}
           </DialogDescription>
         </DialogHeader>
         <form
@@ -1191,7 +1320,11 @@ function BalancePaymentDialog({
             </select>
           </FilterField>
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
               إلغاء
             </Button>
             <Button type="submit" disabled={mutation.isPending}>
@@ -1241,16 +1374,30 @@ function DateRangeFields({
   return (
     <>
       <FilterField label="من تاريخ">
-        <Input type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} />
+        <Input
+          type="date"
+          value={dateFrom}
+          onChange={(event) => setDateFrom(event.target.value)}
+        />
       </FilterField>
       <FilterField label="إلى تاريخ">
-        <Input type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} />
+        <Input
+          type="date"
+          value={dateTo}
+          onChange={(event) => setDateTo(event.target.value)}
+        />
       </FilterField>
     </>
   );
 }
 
-function FilterField({ label, children }: { label: string; children: ReactNode }) {
+function FilterField({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
   return (
     <label className="space-y-2">
       <span className="block text-sm font-medium text-foreground">{label}</span>
@@ -1259,7 +1406,15 @@ function FilterField({ label, children }: { label: string; children: ReactNode }
   );
 }
 
-function KpiCard({ title, value, icon }: { title: string; value: ReactNode; icon: ReactNode }) {
+function KpiCard({
+  title,
+  value,
+  icon,
+}: {
+  title: string;
+  value: ReactNode;
+  icon: ReactNode;
+}) {
   return (
     <Card>
       <CardContent className="flex items-center gap-3 p-4">
@@ -1275,7 +1430,13 @@ function KpiCard({ title, value, icon }: { title: string; value: ReactNode; icon
   );
 }
 
-function ChartCard({ title, children }: { title: string; children: ReactNode }) {
+function ChartCard({
+  title,
+  children,
+}: {
+  title: string;
+  children: ReactNode;
+}) {
   return (
     <SectionCard
       title={title}
@@ -1304,7 +1465,13 @@ function BarChartBox({
           <XAxis dataKey={xKey} />
           <YAxis />
           <Tooltip />
-          <Line type="monotone" dataKey={yKey} stroke="#2563eb" strokeWidth={3} dot={false} />
+          <Line
+            type="monotone"
+            dataKey={yKey}
+            stroke="#2563eb"
+            strokeWidth={3}
+            dot={false}
+          />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -1315,7 +1482,11 @@ function HorizontalBarChartBox({ data }: { data: TopItemRow[] }) {
   return (
     <div dir="ltr" style={{ direction: "ltr" }} className="h-full">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} layout="vertical" margin={{ left: 24, right: 24 }}>
+        <BarChart
+          data={data}
+          layout="vertical"
+          margin={{ left: 24, right: 24 }}
+        >
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis type="number" />
           <YAxis type="category" dataKey="name_ar" width={120} />
@@ -1329,12 +1500,21 @@ function HorizontalBarChartBox({ data }: { data: TopItemRow[] }) {
 
 function PieChartBox({ data }: { data: { name: string; value: number }[] }) {
   return (
-    <div dir="ltr" style={{ direction: "ltr" }} className="h-full min-h-[280px]">
+    <div dir="ltr" style={{ direction: "ltr" }} className="h-full min-h-70">
       <ResponsiveContainer width="100%" height="100%">
         <PieChart>
-          <Pie data={data} dataKey="value" nameKey="name" outerRadius={105} label>
+          <Pie
+            data={data}
+            dataKey="value"
+            nameKey="name"
+            outerRadius={105}
+            label
+          >
             {data.map((entry, index) => (
-              <Cell key={entry.name} fill={chartColors[index % chartColors.length]} />
+              <Cell
+                key={entry.name}
+                fill={chartColors[index % chartColors.length]}
+              />
             ))}
           </Pie>
           <Tooltip />
@@ -1350,42 +1530,46 @@ type DataTableProps = {
   children: ReactNode;
 };
 
-const DataTable = forwardRef<HTMLTableElement, DataTableProps>(function DataTable(
-  { columns, empty, children },
-  ref,
-) {
-  return (
-    <Card className="overflow-hidden">
-      <CardContent className="p-0">
-        <div className="overflow-x-auto">
-          <table ref={ref} className="min-w-full text-right">
-            <thead className="bg-muted/40 text-sm text-muted-foreground">
-              <tr>
-                {columns.map((column) => (
-                  <TableHead key={column}>{column}</TableHead>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {empty ? (
+const DataTable = forwardRef<HTMLTableElement, DataTableProps>(
+  function DataTable({ columns, empty, children }, ref) {
+    return (
+      <Card className="overflow-hidden">
+        <CardContent className="p-0">
+          <div className="overflow-x-auto">
+            <table ref={ref} className="min-w-full text-right">
+              <thead className="bg-muted/40 text-sm text-muted-foreground">
                 <tr>
-                  <td colSpan={columns.length} className="px-6 py-14 text-center text-muted-foreground">
-                    لا توجد بيانات للعرض
-                  </td>
+                  {columns.map((column) => (
+                    <TableHead key={column}>{column}</TableHead>
+                  ))}
                 </tr>
-              ) : (
-                children
-              )}
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
-  );
-});
+              </thead>
+              <tbody>
+                {empty ? (
+                  <tr>
+                    <td
+                      colSpan={columns.length}
+                      className="px-6 py-14 text-center text-muted-foreground"
+                    >
+                      لا توجد بيانات للعرض
+                    </td>
+                  </tr>
+                ) : (
+                  children
+                )}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  },
+);
 
 function TableHead({ children }: { children: ReactNode }) {
-  return <th className="whitespace-nowrap px-4 py-3 font-medium">{children}</th>;
+  return (
+    <th className="whitespace-nowrap px-4 py-3 font-medium">{children}</th>
+  );
 }
 
 function TableCell({
@@ -1398,7 +1582,13 @@ function TableCell({
   colSpan?: number;
 }) {
   return (
-    <td colSpan={colSpan} className={cn("whitespace-nowrap px-4 py-3 text-sm text-muted-foreground", className)}>
+    <td
+      colSpan={colSpan}
+      className={cn(
+        "whitespace-nowrap px-4 py-3 text-sm text-muted-foreground",
+        className,
+      )}
+    >
       {children}
     </td>
   );
