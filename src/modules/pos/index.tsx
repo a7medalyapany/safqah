@@ -15,6 +15,10 @@ import {
   InvoiceSuccessDialog,
   type SaleInvoiceSuccess,
 } from "@/modules/pos/InvoiceSuccessDialog";
+import {
+  ensureCashPaidAtLeastTotal,
+  shouldSyncCashPaidToTotal,
+} from "@/modules/pos/paymentRules";
 import type { Category, Item } from "@/modules/items/types";
 import type { Customer } from "@/modules/parties/types";
 import { useBarcodeScanner } from "@/shared/hooks/useBarcodeScanner";
@@ -215,9 +219,11 @@ export default function PosPage() {
 
   useEffect(() => {
     if (
-      paymentMethod === "cash" &&
-      paidCashMillieme === 0 &&
-      totalMillieme > 0
+      shouldSyncCashPaidToTotal({
+        paymentMethod,
+        paidCashMillieme,
+        totalMillieme,
+      })
     ) {
       setPaidCashAmount(totalMillieme);
     }
@@ -782,16 +788,32 @@ export default function PosPage() {
                     <Input
                       dir="rtl"
                       type="number"
-                      min={0}
+                      min={moneyToInput(totalMillieme)}
                       step="0.01"
                       value={moneyToInput(paidCashMillieme)}
                       onChange={(event) => {
                         try {
+                          const parsedMillieme = toMillieme(
+                            event.target.value || 0,
+                          );
                           setPaidCashAmount(
-                            toMillieme(event.target.value || 0),
+                            ensureCashPaidAtLeastTotal(
+                              parsedMillieme,
+                              totalMillieme,
+                            ),
                           );
                         } catch {
-                          setPaidCashAmount(0);
+                          setPaidCashAmount(totalMillieme);
+                        }
+                      }}
+                      onBlur={() => {
+                        if (paidCashMillieme < totalMillieme) {
+                          setPaidCashAmount(
+                            ensureCashPaidAtLeastTotal(
+                              paidCashMillieme,
+                              totalMillieme,
+                            ),
+                          );
                         }
                       }}
                     />
