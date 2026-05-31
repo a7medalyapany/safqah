@@ -23,7 +23,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "rpm"],
+    "targets": ["deb", "rpm", "msi", "dmg"],
     "category": "Business",
     "shortDescription": "Offline-first Arabic POS",
     "longDescription": "Offline-first Arabic point of sale system for small businesses and electricity equipment shops.",
