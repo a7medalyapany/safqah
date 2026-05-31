@@ -1,6 +1,10 @@
-import { useEffect, useState, type FormEvent, type HTMLAttributes } from "react";
+import {
+  useEffect,
+  useState,
+  type FormEvent,
+  type HTMLAttributes,
+} from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
 import { Loader2, Save } from "lucide-react";
 import { toast } from "sonner";
 
@@ -14,16 +18,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import type {
-  Category,
-  Item,
-  ItemFormValues,
-} from "@/modules/items/types";
+import type { Category, Item, ItemFormValues } from "@/modules/items/types";
 import {
   parseAppError,
   toItemFormValues,
   toItemPayload,
 } from "@/modules/items/utils";
+import { invoke } from "@/shared/utils/invoke";
 
 type ItemFormDialogProps = {
   item?: Item | null;
@@ -51,7 +52,8 @@ export function ItemFormDialog({
 
   const categoriesQuery = useQuery({
     queryKey: ["categories"],
-    queryFn: () => invoke<Category[]>("list_categories"),
+    queryFn: () =>
+      invoke<Category[]>("list_categories", undefined, { toast: false }),
     staleTime: 30 * 1000,
   });
 
@@ -60,17 +62,22 @@ export function ItemFormDialog({
       const payload = toItemPayload(values);
 
       if (isEdit && item) {
-        return invoke<Item>("update_item", {
-          id: item.id,
-          payload,
-        });
+        return invoke<Item>(
+          "update_item",
+          {
+            id: item.id,
+            payload,
+          },
+          { toast: false },
+        );
       }
 
-      return invoke<Item>("create_item", { payload });
+      return invoke<Item>("create_item", { payload }, { toast: false });
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["items"] });
       await queryClient.invalidateQueries({ queryKey: ["items-stats"] });
+      await queryClient.invalidateQueries({ queryKey: ["pos-items"] });
       toast.success(isEdit ? "تم تحديث الصنف بنجاح" : "تم إضافة الصنف بنجاح");
       onOpenChange(false);
     },
@@ -123,7 +130,7 @@ export function ItemFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form className="space-y-4" onSubmit={handleSubmit}>
+        <form className="space-y-4" noValidate onSubmit={handleSubmit}>
           <div className="grid gap-4 md:grid-cols-2">
             <Field
               label="اسم الصنف *"
@@ -185,16 +192,18 @@ export function ItemFormDialog({
               value={values.min_stock}
               onChange={(value) => handleChange("min_stock", value)}
             />
-            <Field
-              label="اللون"
-              value={values.color}
-              onChange={(value) => handleChange("color", value)}
-            />
-            <Field
-              label="المقاس"
-              value={values.size}
-              onChange={(value) => handleChange("size", value)}
-            />
+            <div hidden>
+              <Field
+                label="اللون"
+                value={values.color}
+                onChange={(value) => handleChange("color", value)}
+              />
+              <Field
+                label="المقاس"
+                value={values.size}
+                onChange={(value) => handleChange("size", value)}
+              />
+            </div>
           </div>
 
           <DialogFooter className="flex-row-reverse justify-start gap-2 bg-transparent p-0 pt-2">
@@ -262,9 +271,7 @@ function Field({
         aria-invalid={Boolean(error)}
         onChange={(event) => onChange(event.target.value)}
       />
-      {error ? (
-        <p className="text-sm text-destructive">{error}</p>
-      ) : null}
+      {error ? <p className="text-sm text-destructive">{error}</p> : null}
     </label>
   );
 }

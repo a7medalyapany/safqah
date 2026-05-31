@@ -1,5 +1,6 @@
-import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
+
+import { invoke } from "@/shared/utils/invoke";
 
 export type Session = {
   id: number;
@@ -16,7 +17,7 @@ export type SessionState = {
   activeSession: Session | null;
   isLoading: boolean;
   fetchActiveSession: () => Promise<void>;
-  openSession: (openingCash: number) => Promise<void>;
+  openSession: (cashierId: number, openingCash: number) => Promise<void>;
   closeSession: (closingCash: number, notes?: string) => Promise<void>;
 };
 
@@ -27,17 +28,28 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     set({ isLoading: true });
 
     try {
-      const activeSession = await invoke<Session | null>("get_active_session");
+      const activeSession = await invoke<Session | null>(
+        "get_active_session",
+        undefined,
+        {
+          toast: false,
+        },
+      );
       set({ activeSession, isLoading: false });
     } catch (error) {
       set({ isLoading: false });
       throw error;
     }
   },
-  async openSession(openingCash) {
-    const activeSession = await invoke<Session>("open_session", {
-      openingCashMillieme: openingCash,
-    });
+  async openSession(cashierId, openingCash) {
+    const activeSession = await invoke<Session>(
+      "open_session",
+      {
+        cashierId,
+        openingCashMillieme: openingCash,
+      },
+      { toast: false },
+    );
 
     set({ activeSession, isLoading: false });
   },
@@ -48,11 +60,15 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       return;
     }
 
-    const activeSession = await invoke<Session>("close_session", {
-      sessionId,
-      closingCashMillieme: closingCash,
-      notes: notes ?? null,
-    });
+    const activeSession = await invoke<Session>(
+      "close_session",
+      {
+        sessionId,
+        closingCashMillieme: closingCash,
+        notes: notes ?? null,
+      },
+      { toast: false },
+    );
 
     set({
       activeSession: activeSession.status === "open" ? activeSession : null,

@@ -1,6 +1,11 @@
 use tauri::State;
 
-use crate::{db::DbPool, errors::AppError, models::session::Session};
+use crate::{
+    db::DbPool,
+    errors::AppError,
+    models::session::Session,
+    services::backup::BackupService,
+};
 
 fn normalize_optional_string(value: Option<String>) -> Option<String> {
     value.and_then(|value| {
@@ -32,6 +37,7 @@ async fn get_active_session_impl(pool: &DbPool) -> Result<Option<Session>, AppEr
 
 async fn open_session_impl(
     pool: &DbPool,
+    cashier_id: i64,
     opening_cash_millieme: i64,
 ) -> Result<Session, AppError> {
     if get_active_session_impl(pool).await?.is_some() {
@@ -42,6 +48,21 @@ async fn open_session_impl(
         ));
     }
 
+    let cashier_exists: Option<(i64,)> = sqlx::query_as(
+        "SELECT id FROM users WHERE id = ? AND is_active = 1",
+    )
+    .bind(cashier_id)
+    .fetch_optional(pool)
+    .await?;
+
+    if cashier_exists.is_none() {
+        return Err(AppError::new(
+            "INVALID_USER",
+            "المستخدم غير صالح",
+            "Invalid user",
+        ));
+    }
+
     let result = sqlx::query(
         r#"
         INSERT INTO sessions (
@@ -49,9 +70,10 @@ async fn open_session_impl(
           opening_cash_millieme,
           status
         )
-        VALUES (1, ?, 'open')
+        VALUES (?, ?, 'open')
         "#,
     )
+    .bind(cashier_id)
     .bind(opening_cash_millieme)
     .execute(pool)
     .await?;
@@ -137,19 +159,27 @@ pub async fn get_active_session(pool: State<'_, DbPool>) -> Result<Option<Sessio
 #[tauri::command]
 pub async fn open_session(
     pool: State<'_, DbPool>,
+    cashier_id: i64,
     opening_cash_millieme: i64,
 ) -> Result<Session, AppError> {
-    open_session_impl(&pool, opening_cash_millieme).await
+    open_session_impl(&pool, cashier_id, opening_cash_millieme).await
 }
 
 #[tauri::command]
 pub async fn close_session(
     pool: State<'_, DbPool>,
+    backup_service: State<'_, BackupService>,
     session_id: i64,
     closing_cash_millieme: i64,
     notes: Option<String>,
 ) -> Result<Session, AppError> {
-    close_session_impl(&pool, session_id, closing_cash_millieme, notes).await
+    let session = close_session_impl(&pool, session_id, closing_cash_millieme, notes).await?;
+
+    if let Err(error) = backup_service.create_backup() {
+        eprintln!("Automatic backup after session close failed: {error:?}");
+    }
+
+    Ok(session)
 }
 
 #[tauri::command]

@@ -13,6 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { parseAppError } from "@/modules/items/utils";
 import { toMillieme } from "@/shared/utils/money";
+import { useAuthStore } from "@/store/authSlice";
 import { type SessionState, useSessionStore } from "@/store/sessionSlice";
 
 type OpenSessionDialogProps = {
@@ -20,8 +21,14 @@ type OpenSessionDialogProps = {
   onOpenChange: (open: boolean) => void;
 };
 
-export function OpenSessionDialog({ open, onOpenChange }: OpenSessionDialogProps) {
-  const openSession = useSessionStore((state: SessionState) => state.openSession);
+export function OpenSessionDialog({
+  open,
+  onOpenChange,
+}: OpenSessionDialogProps) {
+  const openSession = useSessionStore(
+    (state: SessionState) => state.openSession,
+  );
+  const cashierId = useAuthStore((state) => state.user?.id ?? null);
   const [openingCash, setOpeningCash] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -33,7 +40,12 @@ export function OpenSessionDialog({ open, onOpenChange }: OpenSessionDialogProps
 
     try {
       setIsSubmitting(true);
-      await openSession(toMillieme(openingCash));
+      if (!cashierId) {
+        toast.error("تعذر تحديد المستخدم الحالي");
+        return;
+      }
+
+      await openSession(cashierId, toMillieme(openingCash));
       toast.success("تم فتح الوردية بنجاح");
       setOpeningCash("");
       onOpenChange(false);

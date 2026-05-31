@@ -1,10 +1,13 @@
-import { lazy, Suspense, type ReactNode, useEffect, useRef } from "react";
-import { createBrowserRouter, Navigate } from "react-router-dom";
-import { toast } from "sonner";
+import { lazy, Suspense, type ReactNode } from "react";
+import { createBrowserRouter } from "react-router-dom";
 
 import { AppLayout } from "@/app/layout";
-import PosPage from "@/modules/pos";
-import { type SessionState, useSessionStore } from "@/store/sessionSlice";
+import { RouteFallback } from "@/app/routing/RouteFallback";
+import {
+  FeatureRoute,
+  ProtectedPosRoute,
+  RequireAuth,
+} from "@/app/routing/guards";
 
 const DashboardPage = lazy(() => import("@/modules/dashboard"));
 const ItemsPage = lazy(() => import("@/modules/items"));
@@ -16,49 +19,22 @@ const FinancePage = lazy(() => import("@/modules/finance"));
 const ReportsPage = lazy(() => import("@/modules/reports"));
 const SettingsPage = lazy(() => import("@/modules/settings"));
 
-function RouteFallback() {
-  return (
-    <div className="flex min-h-screen items-center justify-center px-6">
-      <p className="text-lg text-muted-foreground">جارٍ التحميل...</p>
-    </div>
-  );
-}
-
-function withSuspense(node: ReactNode) {
+function lazyRoute(node: ReactNode) {
   return <Suspense fallback={<RouteFallback />}>{node}</Suspense>;
-}
-
-function ProtectedPosRoute() {
-  const activeSession = useSessionStore((state: SessionState) => state.activeSession);
-  const isLoading = useSessionStore((state: SessionState) => state.isLoading);
-  const hasShownToastRef = useRef(false);
-
-  useEffect(() => {
-    if (!isLoading && !activeSession && !hasShownToastRef.current) {
-      hasShownToastRef.current = true;
-      toast.error("افتح وردية أولاً للبدء في البيع");
-    }
-  }, [activeSession, isLoading]);
-
-  if (isLoading) {
-    return <RouteFallback />;
-  }
-
-  if (!activeSession) {
-    return <Navigate to="/" replace />;
-  }
-
-  return <PosPage />;
 }
 
 export const router = createBrowserRouter([
   {
     path: "/",
-    element: <AppLayout />,
+    element: (
+      <RequireAuth>
+        <AppLayout />
+      </RequireAuth>
+    ),
     children: [
       {
         index: true,
-        element: withSuspense(<DashboardPage />),
+        element: lazyRoute(<DashboardPage />),
       },
       {
         path: "pos",
@@ -66,35 +42,51 @@ export const router = createBrowserRouter([
       },
       {
         path: "items",
-        element: withSuspense(<ItemsPage />),
+        element: lazyRoute(<ItemsPage />),
       },
       {
         path: "sales",
-        element: withSuspense(<SalesPage />),
+        element: lazyRoute(<SalesPage />),
       },
       {
         path: "purchases",
-        element: withSuspense(<PurchasesPage />),
+        element: lazyRoute(
+          <FeatureRoute feature="purchases">
+            <PurchasesPage />
+          </FeatureRoute>,
+        ),
       },
       {
         path: "customers",
-        element: withSuspense(<CustomersPage />),
+        element: lazyRoute(<CustomersPage />),
       },
       {
         path: "suppliers",
-        element: withSuspense(<SuppliersPage />),
+        element: lazyRoute(<SuppliersPage />),
       },
       {
         path: "finance",
-        element: withSuspense(<FinancePage />),
+        element: lazyRoute(
+          <FeatureRoute feature="finance">
+            <FinancePage />
+          </FeatureRoute>,
+        ),
       },
       {
         path: "reports",
-        element: withSuspense(<ReportsPage />),
+        element: lazyRoute(
+          <FeatureRoute feature="reports">
+            <ReportsPage />
+          </FeatureRoute>,
+        ),
       },
       {
         path: "settings",
-        element: withSuspense(<SettingsPage />),
+        element: lazyRoute(
+          <FeatureRoute feature="settings">
+            <SettingsPage />
+          </FeatureRoute>,
+        ),
       },
     ],
   },

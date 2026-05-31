@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Outlet } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import { toast } from "sonner";
 
+import { ErrorBoundary } from "@/app/ErrorBoundary";
 import { Sidebar } from "@/app/sidebar/Sidebar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,22 +11,34 @@ import { parseAppError } from "@/modules/items/utils";
 import { CloseSessionDialog } from "@/modules/sessions/CloseSessionDialog";
 import { OpenSessionDialog } from "@/modules/sessions/OpenSessionDialog";
 import { type SessionState, useSessionStore } from "@/store/sessionSlice";
+import SetupWizard from "@/app/setup/SetupWizard";
+import { invoke } from "@/shared/utils/invoke";
 
 const SIDEBAR_WIDTH = 240;
 
 export function AppLayout() {
-  const activeSession = useSessionStore((state: SessionState) => state.activeSession);
+  const location = useLocation();
+  const activeSession = useSessionStore(
+    (state: SessionState) => state.activeSession,
+  );
   const fetchActiveSession = useSessionStore(
     (state: SessionState) => state.fetchActiveSession,
   );
   const [isOpenDialogVisible, setIsOpenDialogVisible] = useState(false);
   const [isCloseDialogVisible, setIsCloseDialogVisible] = useState(false);
+  const [isFirstLaunch, setIsFirstLaunch] = useState<boolean | null>(null);
 
   useEffect(() => {
     void fetchActiveSession().catch((error: unknown) => {
       toast.error(parseAppError(error).message_ar);
     });
   }, [fetchActiveSession]);
+
+  useEffect(() => {
+    void invoke<boolean>("is_first_launch")
+      .then(setIsFirstLaunch)
+      .catch(() => setIsFirstLaunch(false));
+  }, []);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -41,7 +54,29 @@ export function AppLayout() {
     };
   }, []);
 
-  const cashierName = activeSession ? `الكاشير ${activeSession.cashier_id}` : null;
+  const cashierName = activeSession
+    ? `الكاشير ${activeSession.cashier_id}`
+    : null;
+  const currentDate = new Intl.DateTimeFormat("ar-EG", {
+    weekday: "long",
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(new Date());
+
+  // Still checking
+  if (isFirstLaunch === null) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      </div>
+    );
+  }
+
+  // First launch — show wizard (no sidebar/topbar)
+  if (isFirstLaunch === true) {
+    return <SetupWizard onComplete={() => setIsFirstLaunch(false)} />;
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -55,9 +90,7 @@ export function AppLayout() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-lg font-semibold">إدارة الجلسة الحالية</p>
-              <p className="text-sm text-muted-foreground">
-                شاشة نقطة البيع تتطلب وردية مفتوحة.
-              </p>
+              <p className="text-sm text-muted-foreground">{currentDate}</p>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -83,7 +116,9 @@ export function AppLayout() {
           </div>
         </header>
 
-        <Outlet />
+        <ErrorBoundary key={location.pathname}>
+          <Outlet />
+        </ErrorBoundary>
       </main>
 
       <OpenSessionDialog

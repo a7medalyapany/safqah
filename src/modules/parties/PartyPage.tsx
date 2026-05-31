@@ -1,7 +1,14 @@
 import { useDeferredValue, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { invoke } from "@tauri-apps/api/core";
-import { BadgePlus, BookOpen, Edit3, Search, Trash2, Users } from "lucide-react";
+import { invoke } from "@/shared/utils/invoke";
+import {
+  BadgePlus,
+  BookOpen,
+  Edit3,
+  Search,
+  Trash2,
+  Users,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -49,7 +56,7 @@ export function PartyPage({ kind }: { kind: PartyKind }) {
         <CardContent className="space-y-4 px-0">
           <div className="flex flex-col-reverse gap-3 rounded-2xl border bg-card p-4 lg:flex-row-reverse lg:items-center lg:justify-between">
             <div className="relative flex-1">
-              <Search className="absolute end-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Search className="absolute inset-e-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 dir="rtl"
                 className="pe-9"
@@ -88,13 +95,18 @@ export function PartyPage({ kind }: { kind: PartyKind }) {
                         <td colSpan={4} className="px-6 py-16">
                           <div className="flex flex-col items-center justify-center gap-3 text-center">
                             <Users className="size-10 text-muted-foreground" />
-                            <p className="text-base font-medium">{meta.empty}</p>
+                            <p className="text-base font-medium">
+                              {meta.empty}
+                            </p>
                           </div>
                         </td>
                       </tr>
                     ) : (
                       parties.map((party) => (
-                        <tr key={party.id} className="border-t transition-colors hover:bg-muted/30">
+                        <tr
+                          key={party.id}
+                          className="border-t transition-colors hover:bg-muted/30"
+                        >
                           <TableCell className="font-medium text-foreground">
                             <div className="space-y-1">
                               <p>{party.name}</p>
@@ -105,7 +117,12 @@ export function PartyPage({ kind }: { kind: PartyKind }) {
                           </TableCell>
                           <TableCell>{party.phone || "—"}</TableCell>
                           <TableCell>
-                            <span className={cn("font-medium", getBalanceTone(party.balance_millieme))}>
+                            <span
+                              className={cn(
+                                "font-medium",
+                                getBalanceTone(party.balance_millieme),
+                              )}
+                            >
                               {formatEGP(party.balance_millieme)}
                             </span>
                           </TableCell>
@@ -151,7 +168,11 @@ export function PartyPage({ kind }: { kind: PartyKind }) {
         </CardContent>
       </Card>
 
-      <PartyFormDialog kind={kind} open={isCreateOpen} onOpenChange={setIsCreateOpen} />
+      <PartyFormDialog
+        kind={kind}
+        open={isCreateOpen}
+        onOpenChange={setIsCreateOpen}
+      />
 
       <PartyFormDialog
         kind={kind}
@@ -211,5 +232,7 @@ function TableCell({
   children: ReactNode;
   className?: string;
 }) {
-  return <td className={`px-4 py-3 align-middle ${className ?? ""}`}>{children}</td>;
+  return (
+    <td className={`px-4 py-3 align-middle ${className ?? ""}`}>{children}</td>
+  );
 }

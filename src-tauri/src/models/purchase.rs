@@ -174,3 +174,39 @@ pub struct PurchaseItemPayload {
     pub unit_cost_millieme: i64,
     pub suggested_sell_price_millieme: Option<i64>,
 }
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+pub struct ItemPurchaseHistory {
+    pub item_id: i64,
+    pub name_ar: String,
+    pub current_buy_price_millieme: i64,
+    pub current_sell_price_millieme: i64,
+    pub last_purchase_date: Option<String>,
+    pub last_purchase_cost_millieme: Option<i64>,
+    pub last_purchase_qty: Option<i64>,
+    pub last_supplier_name: Option<String>,
+    pub purchase_count: i64,
+    pub avg_cost_millieme: Option<i64>,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct ItemBasePriceRow {
+    pub item_id: i64,
+    pub name_ar: String,
+    pub current_buy_price_millieme: i64,
+    pub current_sell_price_millieme: i64,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct LastItemPurchaseRow {
+    pub last_purchase_cost_millieme: i64,
+    pub last_purchase_qty: i64,
+    pub last_supplier_name: Option<String>,
+    pub last_purchase_date: String,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+pub struct ItemPurchaseStatsRow {
+    pub purchase_count: i64,
+    pub avg_cost_millieme: Option<i64>,
+}

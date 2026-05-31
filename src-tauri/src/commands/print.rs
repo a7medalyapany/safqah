@@ -1,10 +1,16 @@
+use std::collections::HashMap;
+
 use encoding_rs::WINDOWS_1256;
-use sqlx::Row;
 use tauri::State;
 
 use crate::{
+    commands::sales::fetch_invoice_detail,
+    commands::settings::fetch_settings_map,
+    commands::settings::get_setting_value,
     db::DbPool,
     errors::AppError,
+    models::item::Item,
+    services::invoice_pdf as invoice_pdf_service,
     services::print_queue::{enqueue_print_job, send_print_payload, PrintPayload, PrintQueue},
 };
 
@@ -29,6 +35,25 @@ struct ReceiptItem {
 struct ReceiptSettings {
     shop_name: String,
     shop_address: String,
+    shop_phone: String,
+    default_printer: String,
+    currency_symbol: String,
+    receipt_size: String,
+    show_shop_name_on_receipt: bool,
+    show_shop_address_on_receipt: bool,
+    show_shop_phone_on_receipt: bool,
+    show_thank_you_on_receipt: bool,
+    receipt_thank_you_message: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct BarcodeLabelConfig {
+    pub item_id: i64,
+    pub quantity: i64,
+    pub show_name: bool,
+    pub show_price: bool,
+    pub show_shop_name: bool,
+    pub label_size: String,
 }
 
 #[tauri::command]
@@ -44,26 +69,133 @@ pub async fn print_receipt(
     let bytes = build_receipt_bytes(&settings, &invoice, &items);
     let payload = PrintPayload {
         bytes,
-        printer_name,
+        printer_name: printer_name.or_else(|| get_default_printer(&settings)),
         invoice_id,
     };
 
-    match send_print_payload(&payload) {
-        Ok(()) => Ok(()),
-        Err(error) => {
-            eprintln!(
-                "initial print failed for invoice {}: {}",
-                invoice_id, error.message_en
-            );
-            enqueue_print_job(&queue, payload)?;
-            Ok(())
+    send_or_queue_print(&queue, payload, invoice_id).await
+}
+
+#[tauri::command]
+pub async fn print_test_receipt(
+    pool: State<'_, DbPool>,
+    queue: State<'_, PrintQueue>,
+    printer_name: Option<String>,
+) -> Result<(), AppError> {
+    let settings = fetch_receipt_settings(&pool).await?;
+    let bytes = build_test_receipt_bytes(&settings);
+    let payload = PrintPayload {
+        bytes,
+        printer_name: printer_name.or_else(|| get_default_printer(&settings)),
+        invoice_id: 0,
+    };
+
+    send_or_queue_print(&queue, payload, 0).await
+}
+
+#[tauri::command]
+pub async fn generate_invoice_pdf(
+    pool: State<'_, DbPool>,
+    invoice_id: i64,
+) -> Result<String, AppError> {
+    let invoice = fetch_invoice_detail(&pool, invoice_id).await?;
+    let mut settings = fetch_settings_map(&pool).await?;
+    inject_customer_balance(&pool, &invoice, &mut settings).await?;
+    let path = invoice_pdf_service::generate_invoice_pdf(&invoice, &settings)?;
+
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn open_whatsapp_with_invoice(
+    pool: State<'_, DbPool>,
+    invoice_id: i64,
+    invoice_number: String,
+) -> Result<bool, AppError> {
+    let invoice = fetch_invoice_detail(&pool, invoice_id).await?;
+    let mut settings = fetch_settings_map(&pool).await?;
+    inject_customer_balance(&pool, &invoice, &mut settings).await?;
+    let url = build_whatsapp_url(&settings, &invoice, &invoice_number);
+
+    tauri_plugin_opener::open_url(url, None::<&str>).map_err(|error| {
+        AppError::new(
+            "OPEN_URL_FAILED",
+            "تعذر فتح واتساب",
+            &format!("Failed to open WhatsApp URL: {error}"),
+        )
+    })?;
+
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn print_barcode_labels(
+    pool: State<'_, DbPool>,
+    queue: State<'_, PrintQueue>,
+    configs: Vec<BarcodeLabelConfig>,
+) -> Result<bool, AppError> {
+    if configs.is_empty() {
+        return Err(AppError::validation("لا توجد ملصقات للطباعة"));
+    }
+
+    let settings = fetch_receipt_settings(&pool).await?;
+    let settings_map = fetch_settings_map(&pool).await?;
+    let mut bytes = Vec::new();
+
+    for config in configs {
+        if config.quantity < 1 {
+            return Err(AppError::validation("عدد النسخ يجب أن يكون 1 على الأقل"));
+        }
+
+        let item = fetch_barcode_label_item(&pool, config.item_id).await?;
+        let Some(barcode) = item
+            .barcode
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            return Err(AppError::new(
+                "NO_BARCODE",
+                &format!("الصنف {} لا يحتوي على باركود", item.name_ar),
+                "Item has no barcode",
+            ));
+        };
+
+        for _ in 0..config.quantity {
+            bytes.extend_from_slice(&build_barcode_label_bytes(
+                &settings,
+                &settings_map,
+                &item,
+                barcode,
+                &config,
+            ));
         }
     }
+
+    let payload = PrintPayload {
+        bytes,
+        printer_name: label_printer_name(&settings_map).or_else(|| get_default_printer(&settings)),
+        invoice_id: 0,
+    };
+
+    send_or_queue_print(&queue, payload, 0).await?;
+    Ok(true)
+}
+
+#[tauri::command]
+pub async fn get_label_printer_list() -> Result<Vec<String>, AppError> {
+    list_printers().await
 }
 
 #[tauri::command]
 pub async fn list_printers() -> Result<Vec<String>, AppError> {
-    list_os_printers()
+    match list_os_printers() {
+        Ok(printers) => Ok(printers),
+        Err(error) => {
+            eprintln!("printer discovery failed: {}", error.message_en);
+            Ok(Vec::new())
+        }
+    }
 }
 
 async fn fetch_receipt_invoice(
@@ -107,40 +239,141 @@ async fn fetch_receipt_items(pool: &DbPool, invoice_id: i64) -> Result<Vec<Recei
 }
 
 async fn fetch_receipt_settings(pool: &DbPool) -> Result<ReceiptSettings, AppError> {
-    let has_settings_table: (i64,) = sqlx::query_as(
-        "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'settings'",
-    )
-    .fetch_one(pool)
-    .await?;
-
-    if has_settings_table.0 == 0 {
-        return Ok(default_receipt_settings());
-    }
-
-    let rows =
-        sqlx::query("SELECT key, value FROM settings WHERE key IN ('shop_name', 'shop_address')")
-            .fetch_all(pool)
-            .await?;
-
-    let mut settings = default_receipt_settings();
-    for row in rows {
-        let key: String = row.try_get("key")?;
-        let value: String = row.try_get("value")?;
-        match key.as_str() {
-            "shop_name" if !value.trim().is_empty() => settings.shop_name = value,
-            "shop_address" if !value.trim().is_empty() => settings.shop_address = value,
-            _ => {}
-        }
-    }
-
-    Ok(settings)
+    Ok(ReceiptSettings {
+        shop_name: load_setting_text(pool, "shop_name", "صفقة").await?,
+        shop_address: load_setting_text(pool, "shop_address", "العنوان غير محدد").await?,
+        shop_phone: load_setting_text(pool, "shop_phone", "").await?,
+        default_printer: load_setting_text(pool, "default_printer", "").await?,
+        currency_symbol: load_setting_text(pool, "currency_symbol", "ج.م").await?,
+        receipt_size: load_setting_text(pool, "receipt_size", "full").await?,
+        show_shop_name_on_receipt: load_setting_bool(pool, "show_shop_name_on_receipt", true).await?,
+        show_shop_address_on_receipt: load_setting_bool(pool, "show_shop_address_on_receipt", true).await?,
+        show_shop_phone_on_receipt: load_setting_bool(pool, "show_shop_phone_on_receipt", true).await?,
+        show_thank_you_on_receipt: load_setting_bool(pool, "show_thank_you_on_receipt", true).await?,
+        receipt_thank_you_message: load_setting_text(pool, "receipt_thank_you_message", "شكراً لزيارتكم").await?,
+    })
 }
 
-fn default_receipt_settings() -> ReceiptSettings {
-    ReceiptSettings {
-        shop_name: "صفقة".to_owned(),
-        shop_address: "العنوان غير محدد".to_owned(),
+async fn fetch_barcode_label_item(pool: &DbPool, item_id: i64) -> Result<Item, AppError> {
+    sqlx::query_as::<_, Item>(
+        r#"
+        SELECT *
+        FROM items
+        WHERE id = ? AND is_active = 1
+        "#,
+    )
+    .bind(item_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| AppError::not_found("الصنف"))
+}
+
+async fn load_setting_text(pool: &DbPool, key: &str, default: &str) -> Result<String, AppError> {
+    Ok(get_setting_value(pool, key)
+        .await?
+        .and_then(|value| {
+            let trimmed = value.trim().to_owned();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+        .unwrap_or_else(|| default.to_owned()))
+}
+
+async fn load_setting_bool(pool: &DbPool, key: &str, default: bool) -> Result<bool, AppError> {
+    Ok(match get_setting_value(pool, key).await? {
+        Some(value) => matches!(value.trim(), "1" | "true" | "yes"),
+        None => default,
+    })
+}
+
+fn get_default_printer(settings: &ReceiptSettings) -> Option<String> {
+    let value = settings.default_printer.trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_owned())
     }
+}
+
+fn label_printer_name(settings: &HashMap<String, String>) -> Option<String> {
+    let value = setting_text(settings, "label_printer", "");
+    if value.trim().is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+fn build_barcode_label_bytes(
+    settings: &ReceiptSettings,
+    settings_map: &HashMap<String, String>,
+    item: &Item,
+    barcode: &str,
+    config: &BarcodeLabelConfig,
+) -> Vec<u8> {
+    let mut bytes = Vec::new();
+
+    bytes.extend_from_slice(&[0x1b, b'@']);
+    bytes.extend_from_slice(&[0x1b, b't', 22]);
+    bytes.extend_from_slice(&[0x1b, b'a', 1]);
+    bytes.extend_from_slice(&[0x1d, b'!', 0x00]);
+
+    if config.show_shop_name {
+        push_centered_text_line(
+            &mut bytes,
+            &setting_text(settings_map, "shop_name", &settings.shop_name),
+        );
+    }
+
+    push_barcode_code128(&mut bytes, barcode);
+
+    if config.show_name {
+        push_centered_text_line(&mut bytes, &item.name_ar);
+    }
+
+    if config.show_price {
+        push_centered_text_line(
+            &mut bytes,
+            &format_receipt_money(item.sell_price_millieme, "ج.م"),
+        );
+    }
+
+    bytes.extend_from_slice(&[0x1d, b'V', 66, label_height_dots(&config.label_size)]);
+    bytes
+}
+
+fn push_centered_text_line(bytes: &mut Vec<u8>, text: &str) {
+    bytes.extend_from_slice(&[0x1b, b'a', 1]);
+    push_text_line(bytes, text);
+}
+
+fn push_barcode_code128(bytes: &mut Vec<u8>, barcode: &str) {
+    let barcode_bytes = barcode.as_bytes();
+    let barcode_length = barcode_bytes.len().min(u8::MAX as usize) as u8;
+    let barcode_bytes = &barcode_bytes[..usize::from(barcode_length)];
+
+    bytes.extend_from_slice(&[0x1d, b'H', 2]);
+    bytes.extend_from_slice(&[0x1d, b'f', 0]);
+    bytes.extend_from_slice(&[0x1d, b'k', 73, barcode_length]);
+    bytes.extend_from_slice(barcode_bytes);
+    bytes.push(b'\n');
+}
+
+fn label_height_dots(label_size: &str) -> u8 {
+    match label_size {
+        "30x20" => 160,
+        "50x30" => 240,
+        _ => 200,
+    }
+}
+
+fn format_receipt_money(millieme: i64, currency_symbol: &str) -> String {
+    let pounds = millieme / 1000;
+    let fraction = (millieme.abs() % 1000) / 10;
+    format!("{pounds}.{fraction:02} {currency_symbol}")
 }
 
 fn build_receipt_bytes(
@@ -153,10 +386,17 @@ fn build_receipt_bytes(
     bytes.extend_from_slice(&[0x1b, b'@']);
     bytes.extend_from_slice(&[0x1b, b't', 22]);
     bytes.extend_from_slice(&[0x1b, b'a', 1]);
-    bytes.extend_from_slice(&[0x1d, b'!', 0x11]);
-    push_text_line(&mut bytes, &settings.shop_name);
+    bytes.extend_from_slice(&[0x1d, b'!', if settings.receipt_size == "mini" { 0x00 } else { 0x11 }]);
+    if settings.show_shop_name_on_receipt {
+        push_text_line(&mut bytes, &settings.shop_name);
+    }
     bytes.extend_from_slice(&[0x1d, b'!', 0x00]);
-    push_text_line(&mut bytes, &settings.shop_address);
+    if settings.show_shop_address_on_receipt {
+        push_text_line(&mut bytes, &settings.shop_address);
+    }
+    if settings.show_shop_phone_on_receipt && !settings.shop_phone.trim().is_empty() {
+        push_text_line(&mut bytes, &settings.shop_phone);
+    }
     push_separator(&mut bytes);
 
     bytes.extend_from_slice(&[0x1b, b'a', 2]);
@@ -182,7 +422,7 @@ fn build_receipt_bytes(
 
     push_text_line(&mut bytes, "الصنف          الكمية  السعر");
     for item in items {
-        push_text_line(&mut bytes, &format_item_line(item));
+        push_text_line(&mut bytes, &format_item_line(item, &settings.currency_symbol));
     }
     push_separator(&mut bytes);
 
@@ -191,26 +431,234 @@ fn build_receipt_bytes(
     push_text_line(
         &mut bytes,
         &format!(
-            "الإجمالي:      {} ج.م",
-            format_receipt_money(invoice.total_millieme)
+            "الإجمالي:      {}",
+            format_receipt_money(invoice.total_millieme, &settings.currency_symbol)
         ),
     );
     push_text_line(
         &mut bytes,
-        &format!("المدفوع:       {} ج.م", format_receipt_money(paid)),
+        &format!(
+            "المدفوع:       {}",
+            format_receipt_money(paid, &settings.currency_symbol)
+        ),
     );
     push_text_line(
         &mut bytes,
-        &format!("الباقي:        {} ج.م", format_receipt_money(remaining)),
+        &format!(
+            "الباقي:        {}",
+            format_receipt_money(remaining, &settings.currency_symbol)
+        ),
     );
     push_separator(&mut bytes);
 
-    bytes.extend_from_slice(&[0x1b, b'a', 1]);
-    push_text_line(&mut bytes, "شكراً لزيارتكم");
-    bytes.extend_from_slice(b"\n\n\n");
+    if settings.show_thank_you_on_receipt {
+        bytes.extend_from_slice(&[0x1b, b'a', 1]);
+        push_text_line(&mut bytes, &settings.receipt_thank_you_message);
+    }
+    bytes.extend_from_slice(if settings.receipt_size == "mini" {
+        b"\n\n"
+    } else {
+        b"\n\n\n"
+    });
     bytes.extend_from_slice(&[0x1d, b'V', 0]);
 
     bytes
+}
+
+fn build_test_receipt_bytes(settings: &ReceiptSettings) -> Vec<u8> {
+    let mut bytes = Vec::new();
+
+    bytes.extend_from_slice(&[0x1b, b'@']);
+    bytes.extend_from_slice(&[0x1b, b't', 22]);
+    bytes.extend_from_slice(&[0x1b, b'a', 1]);
+    bytes.extend_from_slice(&[0x1d, b'!', if settings.receipt_size == "mini" { 0x00 } else { 0x11 }]);
+    if settings.show_shop_name_on_receipt {
+        push_text_line(&mut bytes, &settings.shop_name);
+    }
+    bytes.extend_from_slice(&[0x1d, b'!', 0x00]);
+    if settings.show_shop_address_on_receipt {
+        push_text_line(&mut bytes, &settings.shop_address);
+    }
+    if settings.show_shop_phone_on_receipt && !settings.shop_phone.trim().is_empty() {
+        push_text_line(&mut bytes, &settings.shop_phone);
+    }
+    push_separator(&mut bytes);
+    push_text_line(&mut bytes, "اختبار طباعة");
+    push_text_line(&mut bytes, "تمت الطباعة باستخدام الإعدادات الحالية.");
+    push_separator(&mut bytes);
+    if settings.show_thank_you_on_receipt {
+        push_text_line(&mut bytes, &settings.receipt_thank_you_message);
+    }
+    bytes.extend_from_slice(if settings.receipt_size == "mini" {
+        b"\n\n"
+    } else {
+        b"\n\n\n"
+    });
+    bytes.extend_from_slice(&[0x1d, b'V', 0]);
+
+    bytes
+}
+
+async fn inject_customer_balance(
+    pool: &DbPool,
+    invoice: &crate::models::sale::InvoiceDetail,
+    settings: &mut HashMap<String, String>,
+) -> Result<(), AppError> {
+    let Some(customer_id) = invoice.customer_id else {
+        return Ok(());
+    };
+
+    let balance: Option<(i64,)> = sqlx::query_as("SELECT balance_millieme FROM customers WHERE id = ?")
+        .bind(customer_id)
+        .fetch_optional(pool)
+        .await?;
+
+    if let Some((balance_millieme,)) = balance {
+        settings.insert(
+            format!("customer_balance_{customer_id}"),
+            balance_millieme.to_string(),
+        );
+    }
+
+    Ok(())
+}
+
+fn build_whatsapp_url(
+    settings: &HashMap<String, String>,
+    invoice: &crate::models::sale::InvoiceDetail,
+    invoice_number: &str,
+) -> String {
+    let shop_name = setting_text(settings, "shop_name", "صفقة");
+    let thank_you_message = setting_text(
+        settings,
+        "thank_you_message",
+        "شكراً لزيارتكم — نتطلع لخدمتكم مجدداً",
+    );
+
+    let items_list = invoice
+        .items
+        .iter()
+        .map(|item| {
+            format!(
+                "• {} × {} = {} جنيه",
+                item.item_name_ar,
+                item.qty,
+                format_money_plain(item.total_millieme)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let payment_method = payment_method_arabic(&invoice.payment_method);
+    let status = status_arabic(&invoice.status);
+    let balance_line = customer_balance_line(settings, invoice);
+
+    let mut message = format!(
+        "🧾 فاتورة من {shop_name}\n\
+         رقم الفاتورة: {invoice_number}\n\
+         ──────────────\n\
+         {items_list}\n\
+         ──────────────\n\
+         الإجمالي: {total} جنيه\n\
+         المدفوع: {paid} جنيه\n\
+         طريقة الدفع: {method}\n\
+         الحالة: {status}",
+        total = format_money_plain(invoice.total_millieme),
+        paid = format_money_plain(invoice.paid_millieme),
+        method = payment_method,
+        status = status,
+    );
+
+    if !balance_line.is_empty() {
+        message.push('\n');
+        message.push_str(&balance_line);
+    }
+
+    message.push_str("\n──────────────\n");
+    message.push_str(&thank_you_message);
+
+    format!("https://wa.me/?text={}", urlencoding::encode(&message))
+}
+
+fn customer_balance_line(
+    settings: &HashMap<String, String>,
+    invoice: &crate::models::sale::InvoiceDetail,
+) -> String {
+    let Some(customer_id) = invoice.customer_id else {
+        return String::new();
+    };
+
+    let Some(balance_value) = settings.get(&format!("customer_balance_{customer_id}")) else {
+        return String::new();
+    };
+
+    let Ok(balance_millieme) = balance_value.trim().parse::<i64>() else {
+        return String::new();
+    };
+
+    if balance_millieme > 0 {
+        format!(
+            "💳 رصيد مستحق: {} جنيه",
+            format_money_plain(balance_millieme)
+        )
+    } else if balance_millieme < 0 {
+        format!(
+            "💚 رصيد لصالحك: {} جنيه",
+            format_money_plain(balance_millieme.abs())
+        )
+    } else {
+        String::new()
+    }
+}
+
+fn setting_text(settings: &HashMap<String, String>, key: &str, default: &str) -> String {
+    settings
+        .get(key)
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+        .unwrap_or(default)
+        .to_owned()
+}
+
+fn payment_method_arabic(method: &str) -> &'static str {
+    match method {
+        "cash" => "نقدي",
+        "card" => "فيزا/كارت",
+        "deferred" => "آجل",
+        "split" => "دفع مختلط",
+        _ => "غير محددة",
+    }
+}
+
+fn status_arabic(status: &str) -> &'static str {
+    match status {
+        "paid" => "مدفوع ✓",
+        "deferred" => "آجل",
+        "partial" => "مدفوع جزئياً",
+        _ => "غير محددة",
+    }
+}
+
+fn format_money_plain(millieme: i64) -> String {
+    format!("{:.2}", millieme as f64 / 1000.0)
+}
+
+async fn send_or_queue_print(
+    queue: &State<'_, PrintQueue>,
+    payload: PrintPayload,
+    invoice_id: i64,
+) -> Result<(), AppError> {
+    match send_print_payload(&payload) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+            eprintln!(
+                "initial print failed for invoice {}: {}",
+                invoice_id, error.message_en
+            );
+            enqueue_print_job(queue.inner(), payload)?;
+            Ok(())
+        }
+    }
 }
 
 fn push_separator(bytes: &mut Vec<u8>) {
@@ -224,19 +672,13 @@ fn push_text_line(bytes: &mut Vec<u8>, text: &str) {
     bytes.push(b'\n');
 }
 
-fn format_item_line(item: &ReceiptItem) -> String {
+fn format_item_line(item: &ReceiptItem, currency_symbol: &str) -> String {
     let name = truncate_chars(&item.item_name_ar, 14);
     format!(
         "{name:<14} {:>5} {:>8}",
         item.qty,
-        format_receipt_money(item.unit_price_millieme)
+        format_receipt_money(item.unit_price_millieme, currency_symbol)
     )
-}
-
-fn format_receipt_money(millieme: i64) -> String {
-    let pounds = millieme / 1000;
-    let fraction = (millieme.abs() % 1000) / 10;
-    format!("{pounds}.{fraction:02}")
 }
 
 fn format_receipt_date(value: &str) -> String {
@@ -266,7 +708,6 @@ fn to_arabic_digits(value: &str) -> String {
             '7' => '٧',
             '8' => '٨',
             '9' => '٩',
-            '.' => '٫',
             _ => ch,
         })
         .collect()

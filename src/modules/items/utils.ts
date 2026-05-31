@@ -1,4 +1,5 @@
-import type { AppErrorShape, Item, ItemFormValues } from "@/modules/items/types";
+import type { Item, ItemFormValues } from "@/modules/items/types";
+import type { AppErrorShape } from "@/shared/types/errors";
 import { toMillieme } from "@/shared/utils/money";
 
 export function getItemStockTone(item: Item) {
@@ -54,7 +55,7 @@ export function parseAppError(error: unknown): AppErrorShape {
     typeof error === "object" &&
     "code" in error &&
     "message_ar" in error &&
-    "message_en" in error
+    "debugMessage" in error
   ) {
     return error as AppErrorShape;
   }
@@ -63,7 +64,7 @@ export function parseAppError(error: unknown): AppErrorShape {
     return {
       code: "UNKNOWN",
       message_ar: "حدث خطأ غير متوقع",
-      message_en: error,
+      debugMessage: error,
     };
   }
 
@@ -71,14 +72,14 @@ export function parseAppError(error: unknown): AppErrorShape {
     return {
       code: "UNKNOWN",
       message_ar: "حدث خطأ غير متوقع",
-      message_en: error.message,
+      debugMessage: error.message,
     };
   }
 
   return {
     code: "UNKNOWN",
     message_ar: "حدث خطأ غير متوقع",
-    message_en: "Unknown error",
+    debugMessage: "Unknown error",
   };
 }
 

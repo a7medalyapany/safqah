@@ -88,10 +88,10 @@ partial payment → outstanding balance reduces correctly.
 
 | ID    | Task                                         | Status | Notes                       |
 | ----- | -------------------------------------------- | ------ | --------------------------- |
-| T-050 | All report Rust commands (indexed, <200ms)   | `[ ]`  | depends: M3a + M3b complete |
-| T-051 | Reports hub UI (grid + date filter + export) | `[ ]`  | depends: T-050              |
-| T-052 | Dashboard (KPIs + charts + alerts)           | `[ ]`  | depends: T-050              |
-| T-053 | CSV export + print for all reports           | `[ ]`  | depends: T-051              |
+| T-050 | All report Rust commands (indexed, <200ms)   | `[x]`  | depends: M3a + M3b complete |
+| T-051 | Reports hub UI (grid + date filter + export) | `[x]`  | depends: T-050              |
+| T-052 | Dashboard (KPIs + charts + alerts)           | `[x]`  | depends: T-050              |
+| T-053 | CSV export + print for all reports           | `[x]`  | depends: T-051              |
 
 **M4 exit criteria:** Seed 10k invoices. All 8 report commands return in under 200ms.
 Dashboard loads in under 1 second. CSV export downloads a valid file.
@@ -102,12 +102,12 @@ Dashboard loads in under 1 second. CSV export downloads a valid file.
 
 | ID    | Task                                                        | Status | Notes                 |
 | ----- | ----------------------------------------------------------- | ------ | --------------------- |
-| T-060 | Users + roles + login screen + argon2                       | `[ ]`  | depends: T-007        |
-| T-061 | Auto-backup (session close + 4hr interval + restore)        | `[ ]`  | depends: T-004        |
-| T-062 | Settings screen (shop info, tax, printer, receipt template) | `[ ]`  | depends: T-007        |
-| T-063 | Error boundaries + Arabic toast for all AppErrors           | `[ ]`  | depends: M2 complete  |
-| T-064 | Performance audit (POS <1s, search <100ms, 8hr memory)      | `[ ]`  | depends: M4 complete  |
-| T-065 | First-launch wizard + seed data                             | `[ ]`  | depends: T-060, T-062 |
+| T-060 | Users + roles + login screen + argon2                       | `[x]`  | depends: T-007        |
+| T-061 | Auto-backup (session close + 4hr interval + restore)        | `[x]`  | depends: T-004        |
+| T-062 | Settings screen (shop info, tax, printer, receipt template) | `[x]`  | depends: T-007        |
+| T-063 | Error boundaries + Arabic toast for all AppErrors           | `[x]`  | depends: M2 complete  |
+| T-064 | Performance audit (POS <1s, search <100ms, 8hr memory)      | `[x]`  | depends: M4 complete  |
+| T-065 | First-launch wizard + seed data                             | `[x]`  | depends: T-060, T-062 |
 
 **M5 exit criteria:** Login as cashier → reports hidden. Login as admin → everything
 visible. Force a DB error → Arabic toast, no crash. App runs 8 hours with no memory

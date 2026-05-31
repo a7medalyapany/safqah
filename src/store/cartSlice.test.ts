@@ -59,14 +59,48 @@ describe("cartSlice", () => {
   it("applies a line discount and reduces line total", () => {
     const store = createCartStore();
 
-    store.getState().addItem(makeItem({ id: 1, sell_price_millieme: 5000 }));
-    store.getState().updateLineDiscount(1, 1200);
+    store
+      .getState()
+      .addItem(
+        makeItem({
+          id: 1,
+          sell_price_millieme: 5000,
+          buy_price_millieme: 3000,
+        }),
+      );
+    store.getState().updateLineDiscountPercent(1, 20);
 
     expect(store.getState().items[0]).toMatchObject({
-      discountMillieme: 1200,
-      totalMillieme: 3800,
+      discountPercent: 20,
+      discountMillieme: 1000,
+      totalMillieme: 4000,
     });
-    expect(store.getState().subtotalMillieme()).toBe(3800);
+    expect(store.getState().subtotalMillieme()).toBe(4000);
+  });
+
+  it("keeps the invoice line and global discount above cost", () => {
+    const store = createCartStore();
+
+    store
+      .getState()
+      .addItem(
+        makeItem({
+          id: 1,
+          sell_price_millieme: 5000,
+          buy_price_millieme: 3000,
+        }),
+      );
+    store.getState().updateLineUnitPrice(1, 2500);
+
+    expect(store.getState().items[0]).toMatchObject({
+      unitPriceMillieme: 3000,
+      totalMillieme: 3000,
+    });
+
+    store.getState().setGlobalDiscount(500);
+
+    expect(store.getState().globalDiscountMillieme).toBe(0);
+    expect(store.getState().totalMillieme()).toBe(3000);
   });
 
   it("applies a global discount and reduces total", () => {

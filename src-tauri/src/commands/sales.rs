@@ -4,6 +4,7 @@ use sqlx::{QueryBuilder, Sqlite, Transaction};
 use tauri::State;
 
 use crate::{
+    commands::settings::get_setting_value,
     db::DbPool,
     errors::AppError,
     models::{
@@ -20,6 +21,7 @@ use crate::{
 struct ActiveItem {
     id: i64,
     barcode: Option<String>,
+    buy_price_millieme: i64,
     current_stock: i64,
     name_ar: String,
 }
@@ -89,7 +91,7 @@ async fn get_active_item(
     item_id: i64,
 ) -> Result<ActiveItem, AppError> {
     sqlx::query_as::<_, ActiveItem>(
-        "SELECT id, barcode, current_stock, name_ar FROM items WHERE id = ? AND is_active = 1",
+        "SELECT id, barcode, buy_price_millieme, current_stock, name_ar FROM items WHERE id = ? AND is_active = 1",
     )
     .bind(item_id)
     .fetch_optional(&mut **tx)
@@ -223,6 +225,7 @@ async fn get_invoice_detail_impl(
           customers.name AS customer_name,
           invoices.session_id,
           invoices.cashier_id,
+                    users.name AS cashier_name,
           invoices.subtotal_millieme,
           invoices.discount_millieme,
           invoices.tax_millieme,
@@ -234,6 +237,7 @@ async fn get_invoice_detail_impl(
           invoices.created_at
         FROM invoices
         LEFT JOIN customers ON customers.id = invoices.customer_id
+        LEFT JOIN users ON users.id = invoices.cashier_id
         WHERE invoices.id = ?
         "#,
     )
@@ -268,6 +272,13 @@ async fn get_invoice_detail_impl(
     .await?;
 
     Ok(invoice.with_items(items))
+}
+
+pub(crate) async fn fetch_invoice_detail(
+    pool: &DbPool,
+    invoice_id: i64,
+) -> Result<InvoiceDetail, AppError> {
+    get_invoice_detail_impl(pool, invoice_id).await
 }
 
 async fn get_invoice_stats_impl(pool: &DbPool) -> Result<InvoiceStats, AppError> {
@@ -349,6 +360,40 @@ fn sale_status_and_paid(
     }
 }
 
+async fn load_text_setting(pool: &DbPool, key: &str, default: &str) -> Result<String, AppError> {
+    Ok(get_setting_value(pool, key)
+        .await?
+        .and_then(|value| {
+            let trimmed = value.trim().to_owned();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        })
+        .unwrap_or_else(|| default.to_owned()))
+}
+
+async fn load_i64_setting(pool: &DbPool, key: &str, default: i64) -> Result<i64, AppError> {
+    Ok(get_setting_value(pool, key)
+        .await?
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .unwrap_or(default)
+        .max(0))
+}
+
+fn build_document_number(prefix: &str, number: i64) -> String {
+    format!("{}-{:06}", prefix.trim(), number)
+}
+
+fn calculate_tax_millieme(base_millieme: i64, tax_percent: i64) -> i64 {
+    if base_millieme <= 0 || tax_percent <= 0 {
+        0
+    } else {
+        (base_millieme * tax_percent + 50) / 100
+    }
+}
+
 async fn create_sale_invoice_impl(
     pool: &DbPool,
     payload: CreateSaleInvoicePayload,
@@ -385,10 +430,35 @@ async fn create_sale_invoice_impl_tx(
     let (invoice_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM invoices")
         .fetch_one(&mut *tx)
         .await?;
-    let invoice_number = format!("INV-{:06}", invoice_count + 1);
+    let invoice_prefix = load_text_setting(pool, "invoice_prefix", "INV").await?;
+    let tax_percent = load_i64_setting(pool, "tax_percent", 0).await?;
+    let invoice_number = build_document_number(&invoice_prefix, invoice_count + 1);
 
     let subtotal_millieme: i64 = payload.items.iter().map(compute_line_total).sum();
-    let total_millieme = (subtotal_millieme - payload.global_discount_millieme).max(0);
+    let taxable_millieme = (subtotal_millieme - payload.global_discount_millieme).max(0);
+    let tax_millieme = calculate_tax_millieme(taxable_millieme, tax_percent);
+    let total_millieme = taxable_millieme + tax_millieme;
+
+    let minimum_subtotal_millieme: i64 = payload
+        .items
+        .iter()
+        .zip(validated_items.iter())
+        .map(|(item, active_item)| active_item.buy_price_millieme * item.qty)
+        .sum();
+
+    for (item, active_item) in payload.items.iter().zip(validated_items.iter()) {
+        let line_total_millieme = compute_line_total(item);
+        let minimum_line_total_millieme = active_item.buy_price_millieme * item.qty;
+
+        if line_total_millieme < minimum_line_total_millieme {
+            return Err(AppError::validation("لا يمكن البيع بأقل من سعر التكلفة"));
+        }
+    }
+
+    if taxable_millieme < minimum_subtotal_millieme {
+        return Err(AppError::validation("الخصم يجعل إجمالي الفاتورة أقل من سعر التكلفة"));
+    }
+
     let payment_method = payload.payment_method.trim().to_owned();
     let (status, paid_millieme) =
         sale_status_and_paid(&payment_method, payload.paid_millieme, total_millieme);
@@ -409,7 +479,7 @@ async fn create_sale_invoice_impl_tx(
           status,
           notes
         )
-        VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(&invoice_number)
@@ -417,6 +487,7 @@ async fn create_sale_invoice_impl_tx(
     .bind(payload.session_id)
     .bind(subtotal_millieme)
     .bind(payload.global_discount_millieme)
+    .bind(tax_millieme)
     .bind(total_millieme)
     .bind(paid_millieme)
     .bind(&payment_method)
@@ -598,7 +669,8 @@ async fn create_return_impl(
     let (return_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM returns")
         .fetch_one(&mut *tx)
         .await?;
-    let return_number = format!("RET-{:06}", return_count + 1);
+    let return_prefix = load_text_setting(pool, "return_prefix", "RET").await?;
+    let return_number = build_document_number(&return_prefix, return_count + 1);
 
     let total_millieme: i64 = payload
         .items
@@ -724,7 +796,7 @@ pub async fn get_invoice_detail(
     pool: State<'_, DbPool>,
     invoice_id: i64,
 ) -> Result<InvoiceDetail, AppError> {
-    get_invoice_detail_impl(&pool, invoice_id).await
+    fetch_invoice_detail(&pool, invoice_id).await
 }
 
 #[tauri::command]
@@ -769,6 +841,9 @@ mod tests {
             std::process::id(),
             TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(db_path.with_extension("db-shm"));
+        let _ = std::fs::remove_file(db_path.with_extension("db-wal"));
 
         let options = SqliteConnectOptions::new()
             .filename(&db_path)
@@ -777,7 +852,7 @@ mod tests {
             .disable_statement_logging();
 
         let pool = SqlitePoolOptions::new()
-            .max_connections(1)
+            .max_connections(5)
             .connect_with(options)
             .await
             .map_err(AppError::from)?;
@@ -792,6 +867,12 @@ mod tests {
                     &format!("Test migrations failed: {e}"),
                 )
             })?;
+
+        sqlx::query(
+            "INSERT INTO users (id, name, username, password_hash, role) VALUES (1, 'Test Cashier', 'test_cashier', 'test_hash', 'cashier')",
+        )
+        .execute(&pool)
+        .await?;
 
         Ok(pool)
     }
@@ -913,6 +994,33 @@ mod tests {
         .fetch_all(&pool)
         .await?;
         assert_eq!(movements, vec![(-2,), (-3,)]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_sale_invoice_rejects_below_cost_sales() -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_id = insert_item(&pool, "112", 10, 10000).await?;
+
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 1,
+                unit_price_millieme: 10000,
+                discount_millieme: 0,
+            }],
+        );
+        request.global_discount_millieme = 6000;
+
+        let error = create_sale_invoice_impl(&pool, request)
+            .await
+            .expect_err("below-cost sale should fail");
+
+        assert_eq!(error.code, "VALIDATION_ERROR");
+        assert_eq!(error.message_ar, "الخصم يجعل إجمالي الفاتورة أقل من سعر التكلفة");
 
         Ok(())
     }

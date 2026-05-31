@@ -36,12 +36,6 @@ export type StockMovement = {
   reference_number: string | null;
 };
 
-export type AppErrorShape = {
-  code: string;
-  message_ar: string;
-  message_en: string;
-};
-
 export type ItemFormValues = {
   name_ar: string;
   barcode: string;

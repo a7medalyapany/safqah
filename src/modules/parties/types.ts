@@ -1,4 +1,4 @@
-import type { AppErrorShape } from "@/modules/items/types";
+import type { AppErrorShape } from "@/shared/types/errors";
 
 export type PartyKind = "customer" | "supplier";
 

@@ -5,6 +5,12 @@
   "windows": ["main"],
   "permissions": [
     "core:default",
-    "opener:default"
+    "core:webview:allow-create-webview-window",
+    "core:webview:allow-print",
+    "opener:default",
+    "process:allow-restart",
+    "dialog:allow-open",
+    "dialog:allow-save",
+    "fs:allow-write-text-file"
   ]
 }
