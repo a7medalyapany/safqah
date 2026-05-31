@@ -87,12 +87,12 @@ export function LoginPage() {
           </label>
 
           {errorMessage ? (
-            <p className="rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            <p className="rounded-xl border border-destructive/20 bg-destructive/10 px-3 py-2 mt-2 text-sm text-destructive">
               {errorMessage}
             </p>
           ) : null}
 
-          <Button className="w-full" type="submit" disabled={isSubmitting}>
+          <Button className="w-full mt-2" type="submit" disabled={isSubmitting}>
             {isSubmitting ? "جاري التحقق..." : "تسجيل الدخول"}
           </Button>
         </form>

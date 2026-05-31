@@ -1,6 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 
-import { getItemMovements, listCategories, listItems } from "@/modules/items/api";
+import {
+  getItemMovements,
+  listCategories,
+  listItems,
+} from "@/modules/items/api";
 import {
   ITEM_MOVEMENTS_STALE_TIME_MS,
   ITEMS_STALE_TIME_MS,
@@ -18,7 +22,13 @@ export function useItemCategories() {
 export function useItemStats() {
   return useQuery({
     queryKey: itemKeys.stats,
-    queryFn: () => listItems({ search: null, categoryId: null }),
+    queryFn: () =>
+      listItems({
+        search: null,
+        categoryId: null,
+        limit: null,
+        offset: null,
+      }),
     staleTime: ITEMS_STALE_TIME_MS,
   });
 }
@@ -26,7 +36,13 @@ export function useItemStats() {
 export function useItems(search: string, categoryId: number | null) {
   return useQuery({
     queryKey: itemKeys.list(search, categoryId),
-    queryFn: () => listItems({ search: search.trim() || null, categoryId }),
+    queryFn: () =>
+      listItems({
+        search: search.trim() || null,
+        categoryId,
+        limit: null,
+        offset: null,
+      }),
     staleTime: ITEMS_STALE_TIME_MS,
   });
 }
