@@ -77,6 +77,7 @@ export function ItemFormDialog({
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["items"] });
       await queryClient.invalidateQueries({ queryKey: ["items-stats"] });
+      await queryClient.invalidateQueries({ queryKey: ["pos-items"] });
       toast.success(isEdit ? "تم تحديث الصنف بنجاح" : "تم إضافة الصنف بنجاح");
       onOpenChange(false);
     },

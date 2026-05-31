@@ -137,51 +137,42 @@ async fn get_cash_summary_impl(
     date_from: Option<String>,
     date_to: Option<String>,
 ) -> Result<CashSummary, AppError> {
-    let mut sales_query = String::from(
+    let total_sales_cash_millieme = query_cash_summary_total(
+        pool,
         "SELECT COALESCE(SUM(paid_millieme), 0) FROM invoices WHERE 1 = 1",
-    );
-    let mut expenses_query = String::from(
+        None,
+        session_id,
+        date_from.as_deref(),
+        date_to.as_deref(),
+    )
+    .await?;
+    let total_expenses_millieme = query_cash_summary_total(
+        pool,
         "SELECT COALESCE(SUM(amount_millieme), 0) FROM expenses WHERE 1 = 1",
-    );
-    let mut payments_out_query = String::from(
-        "SELECT COALESCE(SUM(amount_millieme), 0) FROM payments WHERE direction = 'out'",
-    );
-    let mut payments_in_query = String::from(
-        "SELECT COALESCE(SUM(amount_millieme), 0) FROM payments WHERE direction = 'in'",
-    );
-
-    if let Some(sid) = session_id {
-        let clause = format!(" AND session_id = {sid}");
-        sales_query.push_str(&clause);
-        expenses_query.push_str(&clause);
-        payments_out_query.push_str(&clause);
-        payments_in_query.push_str(&clause);
-    }
-
-    if let Some(ref date_from) = date_from {
-        let clause = format!(" AND created_at >= '{date_from}'");
-        sales_query.push_str(&clause);
-        expenses_query.push_str(&clause);
-        payments_out_query.push_str(&clause);
-        payments_in_query.push_str(&clause);
-    }
-
-    if let Some(ref date_to) = date_to {
-        let clause = format!(" AND created_at <= '{date_to}'");
-        sales_query.push_str(&clause);
-        expenses_query.push_str(&clause);
-        payments_out_query.push_str(&clause);
-        payments_in_query.push_str(&clause);
-    }
-
-    let total_sales_cash_millieme =
-        sqlx::query_scalar::<_, i64>(&sales_query).fetch_one(pool).await?;
-    let total_expenses_millieme =
-        sqlx::query_scalar::<_, i64>(&expenses_query).fetch_one(pool).await?;
-    let total_payments_out_millieme =
-        sqlx::query_scalar::<_, i64>(&payments_out_query).fetch_one(pool).await?;
-    let total_payments_in_millieme =
-        sqlx::query_scalar::<_, i64>(&payments_in_query).fetch_one(pool).await?;
+        None,
+        session_id,
+        date_from.as_deref(),
+        date_to.as_deref(),
+    )
+    .await?;
+    let total_payments_out_millieme = query_cash_summary_total(
+        pool,
+        "SELECT COALESCE(SUM(amount_millieme), 0) FROM payments WHERE direction = ",
+        Some("out"),
+        session_id,
+        date_from.as_deref(),
+        date_to.as_deref(),
+    )
+    .await?;
+    let total_payments_in_millieme = query_cash_summary_total(
+        pool,
+        "SELECT COALESCE(SUM(amount_millieme), 0) FROM payments WHERE direction = ",
+        Some("in"),
+        session_id,
+        date_from.as_deref(),
+        date_to.as_deref(),
+    )
+    .await?;
 
     let net_cash_millieme = total_sales_cash_millieme
         - total_expenses_millieme
@@ -195,6 +186,42 @@ async fn get_cash_summary_impl(
         total_payments_in_millieme,
         net_cash_millieme,
     })
+}
+
+async fn query_cash_summary_total(
+    pool: &DbPool,
+    base_sql: &'static str,
+    direction: Option<&'static str>,
+    session_id: Option<i64>,
+    date_from: Option<&str>,
+    date_to: Option<&str>,
+) -> Result<i64, AppError> {
+    let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new(base_sql);
+
+    if let Some(direction) = direction {
+        query.push_bind(direction);
+    }
+
+    if let Some(session_id) = session_id {
+        query.push(" AND session_id = ");
+        query.push_bind(session_id);
+    }
+
+    if let Some(date_from) = date_from {
+        query.push(" AND created_at >= ");
+        query.push_bind(date_from);
+    }
+
+    if let Some(date_to) = date_to {
+        query.push(" AND created_at <= ");
+        query.push_bind(date_to);
+    }
+
+    query
+        .build_query_scalar::<i64>()
+        .fetch_one(pool)
+        .await
+        .map_err(Into::into)
 }
 
 // ── record_customer_payment ─────────────────────────────────────────────────
@@ -654,6 +681,9 @@ mod tests {
             std::process::id(),
             counter,
         ));
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(db_path.with_extension("db-shm"));
+        let _ = std::fs::remove_file(db_path.with_extension("db-wal"));
 
         let options = SqliteConnectOptions::new()
             .filename(&db_path)
@@ -676,6 +706,12 @@ mod tests {
                     &format!("Test migrations failed: {e}"),
                 )
             })?;
+
+        sqlx::query(
+            "INSERT INTO users (id, name, username, password_hash, role) VALUES (1, 'Test Cashier', 'test_cashier', 'test_hash', 'cashier')",
+        )
+        .execute(&pool)
+        .await?;
 
         Ok(pool)
     }

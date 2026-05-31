@@ -21,6 +21,7 @@ use crate::{
 struct ActiveItem {
     id: i64,
     barcode: Option<String>,
+    buy_price_millieme: i64,
     current_stock: i64,
     name_ar: String,
 }
@@ -90,7 +91,7 @@ async fn get_active_item(
     item_id: i64,
 ) -> Result<ActiveItem, AppError> {
     sqlx::query_as::<_, ActiveItem>(
-        "SELECT id, barcode, current_stock, name_ar FROM items WHERE id = ? AND is_active = 1",
+        "SELECT id, barcode, buy_price_millieme, current_stock, name_ar FROM items WHERE id = ? AND is_active = 1",
     )
     .bind(item_id)
     .fetch_optional(&mut **tx)
@@ -437,6 +438,27 @@ async fn create_sale_invoice_impl_tx(
     let taxable_millieme = (subtotal_millieme - payload.global_discount_millieme).max(0);
     let tax_millieme = calculate_tax_millieme(taxable_millieme, tax_percent);
     let total_millieme = taxable_millieme + tax_millieme;
+
+    let minimum_subtotal_millieme: i64 = payload
+        .items
+        .iter()
+        .zip(validated_items.iter())
+        .map(|(item, active_item)| active_item.buy_price_millieme * item.qty)
+        .sum();
+
+    for (item, active_item) in payload.items.iter().zip(validated_items.iter()) {
+        let line_total_millieme = compute_line_total(item);
+        let minimum_line_total_millieme = active_item.buy_price_millieme * item.qty;
+
+        if line_total_millieme < minimum_line_total_millieme {
+            return Err(AppError::validation("لا يمكن البيع بأقل من سعر التكلفة"));
+        }
+    }
+
+    if taxable_millieme < minimum_subtotal_millieme {
+        return Err(AppError::validation("الخصم يجعل إجمالي الفاتورة أقل من سعر التكلفة"));
+    }
+
     let payment_method = payload.payment_method.trim().to_owned();
     let (status, paid_millieme) =
         sale_status_and_paid(&payment_method, payload.paid_millieme, total_millieme);
@@ -819,6 +841,9 @@ mod tests {
             std::process::id(),
             TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(db_path.with_extension("db-shm"));
+        let _ = std::fs::remove_file(db_path.with_extension("db-wal"));
 
         let options = SqliteConnectOptions::new()
             .filename(&db_path)
@@ -827,7 +852,7 @@ mod tests {
             .disable_statement_logging();
 
         let pool = SqlitePoolOptions::new()
-            .max_connections(1)
+            .max_connections(5)
             .connect_with(options)
             .await
             .map_err(AppError::from)?;
@@ -842,6 +867,12 @@ mod tests {
                     &format!("Test migrations failed: {e}"),
                 )
             })?;
+
+        sqlx::query(
+            "INSERT INTO users (id, name, username, password_hash, role) VALUES (1, 'Test Cashier', 'test_cashier', 'test_hash', 'cashier')",
+        )
+        .execute(&pool)
+        .await?;
 
         Ok(pool)
     }
@@ -963,6 +994,33 @@ mod tests {
         .fetch_all(&pool)
         .await?;
         assert_eq!(movements, vec![(-2,), (-3,)]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_sale_invoice_rejects_below_cost_sales() -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_id = insert_item(&pool, "112", 10, 10000).await?;
+
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 1,
+                unit_price_millieme: 10000,
+                discount_millieme: 0,
+            }],
+        );
+        request.global_discount_millieme = 6000;
+
+        let error = create_sale_invoice_impl(&pool, request)
+            .await
+            .expect_err("below-cost sale should fail");
+
+        assert_eq!(error.code, "VALIDATION_ERROR");
+        assert_eq!(error.message_ar, "الخصم يجعل إجمالي الفاتورة أقل من سعر التكلفة");
 
         Ok(())
     }
