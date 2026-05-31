@@ -1,7 +1,7 @@
 # Safqah POS - صفقة
 
 <p align="center">
-  <img src="./docs/images/dashboard.png" alt="Safqah POS Dashboard" width="100%">
+  <img width="2160" height="1440" alt="dashboard" src="https://github.com/user-attachments/assets/3d406ad3-32ce-47d8-8938-ee7b99512e05" />
 </p>
 
 <p align="center">
@@ -46,21 +46,14 @@ It is designed to run entirely on the local machine while maintaining accurate i
 
 ## Screenshots
 
-### Dashboard
-
-![Dashboard](./docs/images/dashboard.png)
-
 ### Point of Sale
 
-> Add POS screenshot here
-
-### Inventory Management
-
-> Add inventory screenshot here
+<img width="2160" height="1440" alt="pos" src="https://github.com/user-attachments/assets/49578485-48ec-41e2-99a2-415e9dba0bed" />
 
 ### Reports & Analytics
 
-> Add reports screenshot here
+<img width="2160" height="1440" alt="reports" src="https://github.com/user-attachments/assets/3186d55f-fa44-4e3d-a6f0-cb3796723723" />
+<img width="2160" height="1440" alt="Analytics" src="https://github.com/user-attachments/assets/43c96aa0-0c20-4259-a6e7-743ee5ab1492" />
 
 ---
 
