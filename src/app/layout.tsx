@@ -11,6 +11,8 @@ import { parseAppError } from "@/modules/items/utils";
 import { CloseSessionDialog } from "@/modules/sessions/CloseSessionDialog";
 import { OpenSessionDialog } from "@/modules/sessions/OpenSessionDialog";
 import { type SessionState, useSessionStore } from "@/store/sessionSlice";
+import SetupWizard from "@/app/setup/SetupWizard";
+import { invoke } from "@/shared/utils/invoke";
 
 const SIDEBAR_WIDTH = 240;
 
@@ -24,12 +26,19 @@ export function AppLayout() {
   );
   const [isOpenDialogVisible, setIsOpenDialogVisible] = useState(false);
   const [isCloseDialogVisible, setIsCloseDialogVisible] = useState(false);
+  const [isFirstLaunch, setIsFirstLaunch] = useState<boolean | null>(null);
 
   useEffect(() => {
     void fetchActiveSession().catch((error: unknown) => {
       toast.error(parseAppError(error).message_ar);
     });
   }, [fetchActiveSession]);
+
+  useEffect(() => {
+    void invoke<boolean>("is_first_launch")
+      .then(setIsFirstLaunch)
+      .catch(() => setIsFirstLaunch(false));
+  }, []);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -54,6 +63,20 @@ export function AppLayout() {
     month: "long",
     day: "numeric",
   }).format(new Date());
+
+  // Still checking
+  if (isFirstLaunch === null) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
+      </div>
+    );
+  }
+
+  // First launch — show wizard (no sidebar/topbar)
+  if (isFirstLaunch === true) {
+    return <SetupWizard onComplete={() => setIsFirstLaunch(false)} />;
+  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">

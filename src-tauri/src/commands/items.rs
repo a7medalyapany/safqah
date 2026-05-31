@@ -143,6 +143,8 @@ async fn list_items_impl(
     pool: &DbPool,
     search: Option<String>,
     category_id: Option<i64>,
+    limit: Option<i64>,
+    offset: Option<i64>,
 ) -> Result<Vec<Item>, AppError> {
     let mut query = QueryBuilder::<Sqlite>::new("SELECT * FROM items WHERE is_active = 1");
 
@@ -154,10 +156,10 @@ async fn list_items_impl(
             Some(trimmed)
         }
     }) {
-        query.push(" AND (name_ar LIKE ");
-        query.push_bind(format!("%{search}%"));
-        query.push(" OR barcode = ");
-        query.push_bind(search);
+        query.push(" AND (barcode = ");
+        query.push_bind(search.clone());
+        query.push(" OR name_ar LIKE ");
+        query.push_bind(format!("{search}%"));
         query.push(")");
     }
 
@@ -167,6 +169,13 @@ async fn list_items_impl(
     }
 
     query.push(" ORDER BY name_ar ASC");
+
+    let limit = limit.unwrap_or(50).min(200);
+    let offset = offset.unwrap_or(0);
+    query.push(" LIMIT ");
+    query.push_bind(limit);
+    query.push(" OFFSET ");
+    query.push_bind(offset);
 
     query
         .build_query_as::<Item>()
@@ -599,8 +608,10 @@ pub async fn list_items(
     pool: State<'_, DbPool>,
     search: Option<String>,
     category_id: Option<i64>,
+    limit: Option<i64>,
+    offset: Option<i64>,
 ) -> Result<Vec<Item>, AppError> {
-    list_items_impl(&pool, search, category_id).await
+    list_items_impl(&pool, search, category_id, limit, offset).await
 }
 
 #[tauri::command]
@@ -743,7 +754,9 @@ mod tests {
         .await?;
         assert_eq!(created.name_ar, "صنف اختبار");
 
-        let listed = list_items_impl(&pool, Some("صنف".to_owned()), Some(category.id)).await?;
+        let listed =
+            list_items_impl(&pool, Some("صنف".to_owned()), Some(category.id), None, None)
+                .await?;
         assert_eq!(listed.len(), 1);
 
         let by_barcode = get_item_by_barcode_impl(&pool, "TEST-CRUD-1".to_owned()).await?;
@@ -777,7 +790,7 @@ mod tests {
         assert!(deleted);
 
         let listed_after_delete =
-            list_items_impl(&pool, Some("TEST-CRUD-1".to_owned()), None).await?;
+            list_items_impl(&pool, Some("TEST-CRUD-1".to_owned()), None, None, None).await?;
         assert!(listed_after_delete.is_empty());
 
         Ok(())

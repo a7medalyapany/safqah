@@ -1,4 +1,11 @@
-import { Barcode, ClipboardCheck, Clock, Edit3, PackageSearch, Trash2 } from "lucide-react";
+import {
+  Barcode,
+  ClipboardCheck,
+  Clock,
+  Edit3,
+  PackageSearch,
+  Trash2,
+} from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,8 +50,6 @@ export function ItemsTable({
             <thead className="bg-muted/40 text-sm text-muted-foreground">
               <tr>
                 <TableHeadCell>الاسم</TableHeadCell>
-                <TableHeadCell>اللون</TableHeadCell>
-                <TableHeadCell>المقاس</TableHeadCell>
                 <TableHeadCell>الباركود</TableHeadCell>
                 <TableHeadCell>الكمية</TableHeadCell>
                 <TableHeadCell>سعر الشراء</TableHeadCell>
@@ -55,11 +60,13 @@ export function ItemsTable({
             </thead>
             <tbody>
               {isLoading ? (
-                <LoadingRows columns={9} />
+                <LoadingRows columns={7} />
               ) : items.length === 0 ? (
                 <EmptyState
-                  colSpan={9}
-                  icon={<PackageSearch className="size-10 text-muted-foreground" />}
+                  colSpan={7}
+                  icon={
+                    <PackageSearch className="size-10 text-muted-foreground" />
+                  }
                   label="لا توجد أصناف"
                 />
               ) : (
@@ -76,11 +83,12 @@ export function ItemsTable({
                         </p>
                       </div>
                     </TableCell>
-                    <TableCell>{item.color || "—"}</TableCell>
-                    <TableCell>{item.size || "—"}</TableCell>
                     <TableCell>{item.barcode || "—"}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className={getItemStockTone(item)}>
+                      <Badge
+                        variant="outline"
+                        className={getItemStockTone(item)}
+                      >
                         {item.current_stock}
                       </Badge>
                     </TableCell>
@@ -150,5 +158,7 @@ function getCategoryName(categoryId: number | null, categories: Category[]) {
     return "—";
   }
 
-  return categories.find((category) => category.id === categoryId)?.name_ar ?? "—";
+  return (
+    categories.find((category) => category.id === categoryId)?.name_ar ?? "—"
+  );
 }

@@ -8,11 +8,15 @@ export function listCategories() {
 export function listItems({
   search,
   categoryId,
+  limit,
+  offset,
 }: {
   search: string | null;
   categoryId: number | null;
+  limit: number | null;
+  offset: number | null;
 }) {
-  return invoke<Item[]>("list_items", { search, categoryId });
+  return invoke<Item[]>("list_items", { search, categoryId, limit, offset });
 }
 
 export function getItemMovements({

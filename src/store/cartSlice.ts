@@ -296,10 +296,41 @@ const createCartState: StateCreator<CartState> = (set, get) => ({
     });
   },
   updateLineDiscount: (itemId, discountMillieme) => {
-    get().updateLineDiscountPercent(
-      itemId,
-      clampNonNegativeInteger(discountMillieme),
-    );
+    set((state) => {
+      const item = state.items.find((i) => i.itemId === itemId);
+      if (!item) return state;
+
+      const safeDiscount = clampNonNegativeInteger(discountMillieme);
+      const maxDiscount = item.unitPriceMillieme * item.qty;
+      const clampedDiscount = Math.min(safeDiscount, maxDiscount);
+
+      const discountPercent =
+        maxDiscount === 0
+          ? 0
+          : Math.floor((clampedDiscount / maxDiscount) * 100);
+
+      const items = state.items.map((i) =>
+        i.itemId === itemId
+          ? {
+              ...i,
+              ...normalizeLine({
+                qty: i.qty,
+                unitPriceMillieme: i.unitPriceMillieme,
+                discountPercent,
+                buyPriceMillieme: i.buyPriceMillieme,
+              }),
+            }
+          : i,
+      );
+
+      return {
+        items,
+        globalDiscountMillieme: Math.min(
+          state.globalDiscountMillieme,
+          Math.max(0, computeSubtotal(items) - computeMinimumSubtotal(items)),
+        ),
+      };
+    });
   },
   updateLineUnitPrice: (itemId, unitPriceMillieme) => {
     set((state) => {

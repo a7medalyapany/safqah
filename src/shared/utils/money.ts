@@ -33,5 +33,5 @@ export function formatEGP(milliemes: number): string {
   }
 
   const egpValue = milliemes / 1000;
-  return `${arabicEgyptianFormatter.format(egpValue)} ج.م`;
+  return `${arabicEgyptianFormatter.format(egpValue)}`;
 }

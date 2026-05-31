@@ -192,16 +192,18 @@ export function ItemFormDialog({
               value={values.min_stock}
               onChange={(value) => handleChange("min_stock", value)}
             />
-            <Field
-              label="اللون"
-              value={values.color}
-              onChange={(value) => handleChange("color", value)}
-            />
-            <Field
-              label="المقاس"
-              value={values.size}
-              onChange={(value) => handleChange("size", value)}
-            />
+            <div hidden>
+              <Field
+                label="اللون"
+                value={values.color}
+                onChange={(value) => handleChange("color", value)}
+              />
+              <Field
+                label="المقاس"
+                value={values.size}
+                onChange={(value) => handleChange("size", value)}
+              />
+            </div>
           </div>
 
           <DialogFooter className="flex-row-reverse justify-start gap-2 bg-transparent p-0 pt-2">

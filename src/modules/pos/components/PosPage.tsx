@@ -39,6 +39,8 @@ import { useDebouncedValue } from "@/shared/hooks/useDebouncedValue";
 import { formatEGP } from "@/shared/utils/money";
 import { useCartStore } from "@/store/cartSlice";
 import { useSessionStore } from "@/store/sessionSlice";
+import { Button } from "@/components/ui/button";
+import { OpenSessionDialog } from "@/modules/sessions/OpenSessionDialog";
 
 export default function PosPage() {
   const queryClient = useQueryClient();
@@ -91,6 +93,7 @@ export default function PosPage() {
   );
   const [adjustedItem, setAdjustedItem] = useState<Item | null>(null);
   const [isAdjustDialogOpen, setIsAdjustDialogOpen] = useState(false);
+  const [openSessionDialogOpen, setOpenSessionDialogOpen] = useState(false);
   const [successInvoice, setSuccessInvoice] =
     useState<SaleInvoiceSuccess | null>(null);
   const [whatsappPdfPath, setWhatsappPdfPath] = useState<string | null>(null);
@@ -103,6 +106,31 @@ export default function PosPage() {
     searchInputRef.current?.focus();
     searchInputRef.current?.select();
   };
+
+  if (!activeSession) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-6 text-center">
+        <div className="text-7xl">🔒</div>
+        <div className="space-y-2">
+          <h2 className="text-2xl font-bold">لا توجد وردية مفتوحة</h2>
+          <p className="text-muted-foreground text-lg">
+            يجب فتح وردية للبدء في تسجيل المبيعات
+          </p>
+        </div>
+        <Button
+          size="lg"
+          className="px-8"
+          onClick={() => setOpenSessionDialogOpen(true)}
+        >
+          ⚡ بدء وردية جديدة
+        </Button>
+        <OpenSessionDialog
+          open={openSessionDialogOpen}
+          onOpenChange={setOpenSessionDialogOpen}
+        />
+      </div>
+    );
+  }
 
   const handlePrintInvoice = async () => {
     if (!successInvoice) {

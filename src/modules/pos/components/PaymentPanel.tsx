@@ -141,7 +141,7 @@ export function PaymentPanel({
               </p>
             ) : (
               <p className="text-sm font-medium text-emerald-700">
-                الرصيد بعد البيع: ٠٫٠٠ ج.م
+                الرصيد بعد البيع: ٠٫٠٠
               </p>
             )
           ) : null}
