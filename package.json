@@ -8,7 +8,9 @@
     "build": "tsc && vite build",
     "test": "vitest run",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "copy-icons": "cp -R src-tauri/icons public/icons || true",
+    "postinstall": "npm run copy-icons"
   },
   "dependencies": {
     "@radix-ui/react-collapsible": "^1.1.12",
