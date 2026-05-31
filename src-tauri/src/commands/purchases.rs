@@ -522,6 +522,9 @@ mod tests {
             std::process::id(),
             TEST_DB_COUNTER.fetch_add(1, Ordering::Relaxed)
         ));
+        let _ = std::fs::remove_file(&db_path);
+        let _ = std::fs::remove_file(db_path.with_extension("db-shm"));
+        let _ = std::fs::remove_file(db_path.with_extension("db-wal"));
 
         let options = SqliteConnectOptions::new()
             .filename(&db_path)
@@ -530,7 +533,7 @@ mod tests {
             .disable_statement_logging();
 
         let pool = SqlitePoolOptions::new()
-            .max_connections(1)
+            .max_connections(5)
             .connect_with(options)
             .await
             .map_err(AppError::from)?;
@@ -545,6 +548,12 @@ mod tests {
                     &format!("Test migrations failed: {e}"),
                 )
             })?;
+
+        sqlx::query(
+            "INSERT INTO users (id, name, username, password_hash, role) VALUES (1, 'Test Cashier', 'test_cashier', 'test_hash', 'cashier')",
+        )
+        .execute(&pool)
+        .await?;
 
         Ok(pool)
     }

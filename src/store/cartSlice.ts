@@ -8,10 +8,17 @@ export interface CartItem {
   barcode: string;
   nameAr: string;
   qty: number;
+  buyPriceMillieme: number;
   unitPriceMillieme: number;
+  discountPercent: number;
   discountMillieme: number;
   totalMillieme: number;
 }
+
+type CartItemOverrides = {
+  unitPriceMillieme?: number;
+  discountPercent?: number;
+};
 
 export interface CartState {
   items: CartItem[];
@@ -23,13 +30,16 @@ export interface CartState {
   paidCardMillieme: number;
   notes: string;
   subtotalMillieme: () => number;
+  minimumSubtotalMillieme: () => number;
   totalDiscountMillieme: () => number;
   totalMillieme: () => number;
   changeMillieme: () => number;
-  addItem: (item: Item) => void;
+  addItem: (item: Item, overrides?: CartItemOverrides) => void;
   removeItem: (itemId: number) => void;
   updateQty: (itemId: number, qty: number) => void;
+  updateLineDiscountPercent: (itemId: number, discountPercent: number) => void;
   updateLineDiscount: (itemId: number, discountMillieme: number) => void;
+  updateLineUnitPrice: (itemId: number, unitPriceMillieme: number) => void;
   setGlobalDiscount: (discountMillieme: number) => void;
   setCustomer: (id: number, name: string) => void;
   clearCustomer: () => void;
@@ -42,27 +52,107 @@ export interface CartState {
 
 const toInteger = (value: number) => Math.trunc(value);
 
-const clampNonNegativeInteger = (value: number) => Math.max(0, toInteger(value));
+const clampNonNegativeInteger = (value: number) =>
+  Math.max(0, toInteger(value));
 
-const computeLineTotal = (qty: number, unitPriceMillieme: number, discountMillieme: number) =>
-  Math.max(0, unitPriceMillieme * qty - discountMillieme);
+const clampPercent = (value: number) =>
+  Math.min(100, clampNonNegativeInteger(value));
+
+const computeLineDiscountMillieme = (
+  qty: number,
+  unitPriceMillieme: number,
+  discountPercent: number,
+) => Math.max(0, Math.trunc((unitPriceMillieme * qty * discountPercent) / 100));
+
+const computeLineTotal = (
+  qty: number,
+  unitPriceMillieme: number,
+  discountPercent: number,
+) =>
+  Math.max(
+    0,
+    unitPriceMillieme * qty -
+      computeLineDiscountMillieme(qty, unitPriceMillieme, discountPercent),
+  );
 
 const computeSubtotal = (items: CartItem[]) =>
   items.reduce((sum, item) => sum + item.totalMillieme, 0);
 
-const toCartItem = (item: Item): CartItem => {
-  const qty = 1;
-  const discountMillieme = 0;
-  const unitPriceMillieme = toInteger(item.sell_price_millieme);
+const computeMinimumSubtotal = (items: CartItem[]) =>
+  items.reduce((sum, item) => sum + item.buyPriceMillieme * item.qty, 0);
+
+const normalizeLine = ({
+  qty,
+  unitPriceMillieme,
+  discountPercent,
+  buyPriceMillieme,
+}: {
+  qty: number;
+  unitPriceMillieme: number;
+  discountPercent: number;
+  buyPriceMillieme: number;
+}) => {
+  const safeQty = Math.max(1, clampNonNegativeInteger(qty));
+  const safeBuyPriceMillieme = Math.max(
+    0,
+    clampNonNegativeInteger(buyPriceMillieme),
+  );
+  const safeUnitPriceMillieme = Math.max(
+    safeBuyPriceMillieme,
+    clampNonNegativeInteger(unitPriceMillieme),
+  );
+  let safeDiscountPercent = clampPercent(discountPercent);
+
+  while (
+    safeDiscountPercent > 0 &&
+    computeLineTotal(safeQty, safeUnitPriceMillieme, safeDiscountPercent) <
+      safeBuyPriceMillieme * safeQty
+  ) {
+    safeDiscountPercent -= 1;
+  }
+
+  const discountMillieme = computeLineDiscountMillieme(
+    safeQty,
+    safeUnitPriceMillieme,
+    safeDiscountPercent,
+  );
+  const totalMillieme = computeLineTotal(
+    safeQty,
+    safeUnitPriceMillieme,
+    safeDiscountPercent,
+  );
+
+  return {
+    qty: safeQty,
+    unitPriceMillieme: safeUnitPriceMillieme,
+    discountPercent: safeDiscountPercent,
+    discountMillieme,
+    totalMillieme,
+  };
+};
+
+const toCartItem = (
+  item: Item,
+  overrides: CartItemOverrides = {},
+): CartItem => {
+  const buyPriceMillieme = toInteger(item.buy_price_millieme);
+  const line = normalizeLine({
+    qty: 1,
+    unitPriceMillieme: overrides.unitPriceMillieme ?? item.sell_price_millieme,
+    discountPercent: overrides.discountPercent ?? 0,
+    buyPriceMillieme,
+  });
 
   return {
     itemId: item.id,
     barcode: item.barcode ?? "",
     nameAr: item.name_ar,
-    qty,
-    unitPriceMillieme,
-    discountMillieme,
-    totalMillieme: computeLineTotal(qty, unitPriceMillieme, discountMillieme),
+    qty: line.qty,
+    buyPriceMillieme,
+    unitPriceMillieme: line.unitPriceMillieme,
+    discountPercent: line.discountPercent,
+    discountMillieme: line.discountMillieme,
+    totalMillieme: line.totalMillieme,
   };
 };
 
@@ -81,25 +171,33 @@ const createCartState: StateCreator<CartState> = (set, get) => ({
   ...initialCartState,
   subtotalMillieme: () =>
     get().items.reduce((sum, item) => sum + item.totalMillieme, 0),
+  minimumSubtotalMillieme: () =>
+    get().items.reduce(
+      (sum, item) => sum + item.buyPriceMillieme * item.qty,
+      0,
+    ),
   totalDiscountMillieme: () =>
     get().items.reduce((sum, item) => sum + item.discountMillieme, 0) +
     get().globalDiscountMillieme,
-  totalMillieme: () => Math.max(0, get().subtotalMillieme() - get().globalDiscountMillieme),
+  totalMillieme: () =>
+    Math.max(0, get().subtotalMillieme() - get().globalDiscountMillieme),
   changeMillieme: () =>
     get().paymentMethod === "cash"
       ? get().paidCashMillieme - get().totalMillieme()
       : 0,
-  addItem: (item) => {
+  addItem: (item, overrides) => {
     set((state) => {
-      const existingItem = state.items.find((cartItem) => cartItem.itemId === item.id);
+      const existingItem = state.items.find(
+        (cartItem) => cartItem.itemId === item.id,
+      );
 
       if (!existingItem) {
-        const items = [...state.items, toCartItem(item)];
+        const items = [...state.items, toCartItem(item, overrides)];
         return {
           items,
           globalDiscountMillieme: Math.min(
             state.globalDiscountMillieme,
-            computeSubtotal(items),
+            Math.max(0, computeSubtotal(items) - computeMinimumSubtotal(items)),
           ),
         };
       }
@@ -109,12 +207,12 @@ const createCartState: StateCreator<CartState> = (set, get) => ({
         cartItem.itemId === item.id
           ? {
               ...cartItem,
-              qty,
-              totalMillieme: computeLineTotal(
+              ...normalizeLine({
                 qty,
-                cartItem.unitPriceMillieme,
-                cartItem.discountMillieme,
-              ),
+                unitPriceMillieme: cartItem.unitPriceMillieme,
+                discountPercent: cartItem.discountPercent,
+                buyPriceMillieme: cartItem.buyPriceMillieme,
+              }),
             }
           : cartItem,
       );
@@ -123,7 +221,7 @@ const createCartState: StateCreator<CartState> = (set, get) => ({
         items,
         globalDiscountMillieme: Math.min(
           state.globalDiscountMillieme,
-          computeSubtotal(items),
+          Math.max(0, computeSubtotal(items) - computeMinimumSubtotal(items)),
         ),
       };
     });
@@ -135,7 +233,7 @@ const createCartState: StateCreator<CartState> = (set, get) => ({
         items,
         globalDiscountMillieme: Math.min(
           state.globalDiscountMillieme,
-          computeSubtotal(items),
+          Math.max(0, computeSubtotal(items) - computeMinimumSubtotal(items)),
         ),
       };
     });
@@ -153,12 +251,12 @@ const createCartState: StateCreator<CartState> = (set, get) => ({
         item.itemId === itemId
           ? {
               ...item,
-              qty: nextQty,
-              totalMillieme: computeLineTotal(
-                nextQty,
-                item.unitPriceMillieme,
-                item.discountMillieme,
-              ),
+              ...normalizeLine({
+                qty: nextQty,
+                unitPriceMillieme: item.unitPriceMillieme,
+                discountPercent: item.discountPercent,
+                buyPriceMillieme: item.buyPriceMillieme,
+              }),
             }
           : item,
       );
@@ -167,32 +265,24 @@ const createCartState: StateCreator<CartState> = (set, get) => ({
         items,
         globalDiscountMillieme: Math.min(
           state.globalDiscountMillieme,
-          computeSubtotal(items),
+          Math.max(0, computeSubtotal(items) - computeMinimumSubtotal(items)),
         ),
       };
     });
   },
-  updateLineDiscount: (itemId, discountMillieme) => {
+  updateLineDiscountPercent: (itemId, discountPercent) => {
     set((state) => {
       const items = state.items.map((item) =>
         item.itemId === itemId
-          ? (() => {
-              const maxDiscountMillieme = item.qty * item.unitPriceMillieme;
-              const nextDiscountMillieme = Math.min(
-                clampNonNegativeInteger(discountMillieme),
-                maxDiscountMillieme,
-              );
-
-              return {
-                ...item,
-                discountMillieme: nextDiscountMillieme,
-                totalMillieme: computeLineTotal(
-                  item.qty,
-                  item.unitPriceMillieme,
-                  nextDiscountMillieme,
-                ),
-              };
-            })()
+          ? {
+              ...item,
+              ...normalizeLine({
+                qty: item.qty,
+                unitPriceMillieme: item.unitPriceMillieme,
+                discountPercent,
+                buyPriceMillieme: item.buyPriceMillieme,
+              }),
+            }
           : item,
       );
 
@@ -200,18 +290,56 @@ const createCartState: StateCreator<CartState> = (set, get) => ({
         items,
         globalDiscountMillieme: Math.min(
           state.globalDiscountMillieme,
-          computeSubtotal(items),
+          Math.max(0, computeSubtotal(items) - computeMinimumSubtotal(items)),
+        ),
+      };
+    });
+  },
+  updateLineDiscount: (itemId, discountMillieme) => {
+    get().updateLineDiscountPercent(
+      itemId,
+      clampNonNegativeInteger(discountMillieme),
+    );
+  },
+  updateLineUnitPrice: (itemId, unitPriceMillieme) => {
+    set((state) => {
+      const items = state.items.map((item) =>
+        item.itemId === itemId
+          ? {
+              ...item,
+              ...normalizeLine({
+                qty: item.qty,
+                unitPriceMillieme,
+                discountPercent: item.discountPercent,
+                buyPriceMillieme: item.buyPriceMillieme,
+              }),
+            }
+          : item,
+      );
+
+      return {
+        items,
+        globalDiscountMillieme: Math.min(
+          state.globalDiscountMillieme,
+          Math.max(0, computeSubtotal(items) - computeMinimumSubtotal(items)),
         ),
       };
     });
   },
   setGlobalDiscount: (discountMillieme) => {
-    set((state) => ({
-      globalDiscountMillieme: Math.min(
-        clampNonNegativeInteger(discountMillieme),
-        state.subtotalMillieme(),
-      ),
-    }));
+    set((state) => {
+      const maximumGlobalDiscount = Math.max(
+        0,
+        state.subtotalMillieme() - state.minimumSubtotalMillieme(),
+      );
+
+      return {
+        globalDiscountMillieme: Math.min(
+          clampNonNegativeInteger(discountMillieme),
+          maximumGlobalDiscount,
+        ),
+      };
+    });
   },
   setCustomer: (id, name) => {
     set({

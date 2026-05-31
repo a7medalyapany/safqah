@@ -1,8 +1,5 @@
-import type {
-  AppErrorShape,
-  Item,
-  ItemFormValues,
-} from "@/modules/items/types";
+import type { Item, ItemFormValues } from "@/modules/items/types";
+import type { AppErrorShape } from "@/shared/types/errors";
 import { toMillieme } from "@/shared/utils/money";
 
 export function getItemStockTone(item: Item) {

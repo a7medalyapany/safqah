@@ -1,7 +1,7 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { toast } from "sonner";
 
-import type { AppErrorShape } from "@/modules/items/types";
+import type { AppErrorShape } from "@/shared/types/errors";
 
 type BackendAppErrorShape = {
   code: string;
