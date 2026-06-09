@@ -201,25 +201,56 @@ if (-not [RawPrinterHelper]::SendBytes($printerName, $bytes)) {
 }
 "#;
 
-    let mut child = Command::new("powershell")
-        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script])
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-        .map_err(print_io_error)?;
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        
+        let mut child = Command::new("powershell")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-Command", script])
+            .creation_flags(CREATE_NO_WINDOW)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(print_io_error)?;
+        
+        if let Some(stdin) = child.stdin.as_mut() {
+            use std::io::Write;
+            writeln!(stdin, "{printer_name}").map_err(print_io_error)?;
+            writeln!(stdin, "{}", path.display()).map_err(print_io_error)?;
+        }
 
-    if let Some(stdin) = child.stdin.as_mut() {
-        use std::io::Write;
-        writeln!(stdin, "{printer_name}").map_err(print_io_error)?;
-        writeln!(stdin, "{}", path.display()).map_err(print_io_error)?;
+        let status = child.wait().map_err(print_io_error)?;
+        let _ = fs::remove_file(&path);
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err(print_failed_error("Windows raw printer command failed"))
+        }
     }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut child = Command::new("powershell")
+            .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script])
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .map_err(print_io_error)?;
 
-    let status = child.wait().map_err(print_io_error)?;
-    let _ = fs::remove_file(&path);
+        if let Some(stdin) = child.stdin.as_mut() {
+            use std::io::Write;
+            writeln!(stdin, "{printer_name}").map_err(print_io_error)?;
+            writeln!(stdin, "{}", path.display()).map_err(print_io_error)?;
+        }
 
-    if status.success() {
-        Ok(())
-    } else {
-        Err(print_failed_error("Windows raw printer command failed"))
+        let status = child.wait().map_err(print_io_error)?;
+        let _ = fs::remove_file(&path);
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err(print_failed_error("Windows raw printer command failed"))
+        }
     }
 }
 

@@ -27,12 +27,12 @@ type PrintBarcodeDialogProps = {
   onEditItem?: () => void;
 };
 
-type LabelSize = "30x20" | "40x25" | "50x30";
+type LabelSize = "4x6" | "2.5x3.5" | "a4";
 
 const LABEL_SIZE_OPTIONS: Array<{ value: LabelSize; label: string }> = [
-  { value: "30x20", label: "30×20 مم (صغير)" },
-  { value: "40x25", label: "40×25 مم (متوسط)" },
-  { value: "50x30", label: "50×30 مم (كبير)" },
+  { value: "4x6", label: '4×6 بوصة (حراري قياسي)' },
+  { value: "2.5x3.5", label: '2.5×3.5 بوصة (صغير)' },
+  { value: "a4", label: "A4 (ورقة ملصقات)" },
 ];
 
 export function PrintBarcodeDialog({
@@ -45,7 +45,7 @@ export function PrintBarcodeDialog({
   const [showName, setShowName] = useState(true);
   const [showPrice, setShowPrice] = useState(true);
   const [showShopName, setShowShopName] = useState(false);
-  const [labelSize, setLabelSize] = useState<LabelSize>("40x25");
+  const [labelSize, setLabelSize] = useState<LabelSize>("4x6");
   const [selectedPrinter, setSelectedPrinter] = useState("");
   const [isPrinting, setIsPrinting] = useState(false);
 
@@ -93,7 +93,7 @@ export function PrintBarcodeDialog({
     setShowName(true);
     setShowPrice(true);
     setShowShopName(false);
-    setLabelSize("40x25");
+    setLabelSize("4x6");
   }, [item?.id, open]);
 
   useEffect(() => {
@@ -403,9 +403,9 @@ function LabelPreview({
   shopName: string;
 }) {
   const sizeClass =
-    labelSize === "30x20"
+    labelSize === "2.5x3.5"
       ? "max-w-48"
-      : labelSize === "50x30"
+      : labelSize === "4x6"
         ? "max-w-64"
         : "max-w-56";
 
