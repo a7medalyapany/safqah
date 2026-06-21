@@ -17,6 +17,7 @@ import type { Item } from "@/modules/items/types";
 import { parseAppError } from "@/modules/items/utils";
 import { formatEGP } from "@/shared/utils/money";
 import { invoke } from "@/shared/utils/invoke";
+import { printHtml } from "@/shared/utils/printHtml";
 
 type SettingsMap = Record<string, string>;
 
@@ -130,31 +131,37 @@ export function PrintBarcodeDialog({
     setIsPrinting(true);
 
     try {
-      if (selectedPrinter.trim()) {
-        await invoke<boolean>(
-          "update_settings",
-          { updates: { label_printer: selectedPrinter.trim() } },
-          { toast: false },
-        );
-      }
+      const labelsHtml = Array.from({ length: quantity })
+        .map(
+          () => `
+        <div style="
+          display:inline-flex;flex-direction:column;align-items:center;justify-content:center;
+          width:${labelSize === "30x20" ? "50" : labelSize === "50x30" ? "70" : "60"}mm;
+          height:${labelSize === "30x20" ? "35" : labelSize === "50x30" ? "45" : "40"}mm;
+          padding:4px;margin:2px;border:1px dashed #ccc;
+          font-family:'Segoe UI',Tahoma,Arial;text-align:center;overflow:hidden;
+          ${labelSize === "50x30" ? "" : "font-size:10px"}
+        ">
+          ${showShopName ? `<div style="font-size:9px;margin-bottom:2px">${shopName}</div>` : ""}
+          <img src="https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(barcode)}&code=Code128&dpi=96" style="max-width:90%;height:auto" />
+          <div style="font-size:9px;font-family:monospace;margin-top:2px">${barcode}</div>
+          ${showName ? `<div style="font-size:10px;font-weight:500;margin-top:2px">${item.name_ar}</div>` : ""}
+          ${showPrice ? `<div style="font-size:10px;margin-top:2px">${formatEGP(item.sell_price_millieme)}</div>` : ""}
+        </div>`,
+        )
+        .join("");
 
-      await invoke<boolean>(
-        "print_barcode_labels",
-        {
-          configs: [
-            {
-              itemId: item.id,
-              quantity,
-              showName,
-              showPrice,
-              showShopName,
-              labelSize,
-            },
-          ],
-        },
-        { toast: false },
-      );
-
+      const html = `
+        <html dir="rtl" lang="ar">
+          <head><meta charset="utf-8"><title>ملصقات باركود</title>
+          <style>
+            body{margin:10px;direction:rtl;text-align:center}
+            @page{size:auto;margin:5mm}
+            @media print{body{margin:0}}
+          </style></head>
+          <body>${labelsHtml}</body>
+        </html>`;
+      printHtml(html);
       toast.success("جاري الطباعة...", {
         description: `${quantity} ${quantity === 1 ? "ملصق" : "ملصقات"} لـ ${item.name_ar}`,
       });

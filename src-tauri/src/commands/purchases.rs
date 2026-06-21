@@ -23,8 +23,6 @@ pub struct PurchaseStats {
 #[derive(Debug, sqlx::FromRow)]
 struct ActiveItem {
     id: i64,
-    #[allow(dead_code)]
-    name_ar: String,
 }
 
 fn normalize_optional_string(value: Option<String>) -> Option<String> {
@@ -69,7 +67,7 @@ async fn get_active_item(
     item_id: i64,
 ) -> Result<ActiveItem, AppError> {
     sqlx::query_as::<_, ActiveItem>(
-        "SELECT id, name_ar FROM items WHERE id = ? AND is_active = 1",
+        "SELECT id FROM items WHERE id = ? AND is_active = 1",
     )
     .bind(item_id)
     .fetch_optional(&mut **tx)
@@ -193,7 +191,7 @@ async fn list_purchases_impl(
         .map_err(Into::into)
 }
 
-async fn get_purchase_detail_impl(
+pub(crate) async fn get_purchase_detail_impl(
     pool: &DbPool,
     purchase_id: i64,
 ) -> Result<PurchaseDetail, AppError> {

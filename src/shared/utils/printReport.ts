@@ -16,26 +16,15 @@ export function printReport(title: string, contentHtml: string): void {
           table { width: 100%; border-collapse: collapse; }
           th, td { border: 1px solid #ddd; padding: 8px; text-align: right; }
           th { background: #f5f5f5; }
-          button { margin-top: 16px; padding: 8px 16px; cursor: pointer; }
-          @media print { button { display: none; } }
         </style>
       </head>
       <body>
         <h2>${escapeHtml(title)}</h2>
         ${contentHtml}
-        <button onclick="window.print()">طباعة</button>
       </body>
     </html>
   `;
-  const w = window.open("", "_blank");
-  if (!w) {
-    printFromIframe(html);
-    return;
-  }
-
-  w.document.write(html);
-  w.document.close();
-  w.focus();
+  printFromIframe(html);
 }
 
 function printFromIframe(html: string) {
@@ -60,5 +49,13 @@ function printFromIframe(html: string) {
   frameDocument.close();
   frameWindow.focus();
   frameWindow.print();
-  window.setTimeout(() => frame.remove(), 1000);
+
+  let cleanedUp = false;
+  function cleanup() {
+    if (cleanedUp) return;
+    cleanedUp = true;
+    frame.remove();
+  }
+  frameWindow.addEventListener("afterprint", cleanup);
+  window.setTimeout(cleanup, 5000);
 }

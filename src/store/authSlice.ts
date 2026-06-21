@@ -2,9 +2,9 @@ import { create } from "zustand";
 
 import { invoke } from "@/shared/utils/invoke";
 
-export type Role = "admin" | "cashier" | "accountant";
+type Role = "admin" | "cashier" | "accountant";
 
-export type User = {
+type User = {
   id: number;
   name: string;
   username: string;
@@ -29,7 +29,7 @@ const featurePermissions: Record<string, Role[]> = {
   inventory: ["admin", "cashier"],
 };
 
-export type AuthState = {
+type AuthState = {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;

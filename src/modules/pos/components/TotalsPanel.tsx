@@ -23,7 +23,6 @@ export function TotalsPanel({
       <div className="flex items-center justify-between gap-3">
         <span className="text-muted-foreground">الخصم الإجمالي</span>
         <div className="flex items-center gap-2">
-          {/* <span className="text-sm text-muted-foreground">ج.م</span> */}
           <Input
             key={`global-discount-${globalDiscountMillieme}`}
             dir="rtl"

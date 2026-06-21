@@ -32,7 +32,6 @@ impl AppError {
         )
     }
 
-    #[allow(dead_code)]
     pub fn validation(message_ar: &str) -> Self {
         Self::new("VALIDATION_ERROR", message_ar, "Validation error")
     }

@@ -1,24 +1,6 @@
 import type { DraftPurchaseItem, PriceSuggestion, PurchaseStatus } from "@/modules/purchases/types";
 import { toMillieme } from "@/shared/utils/money";
 
-export function buildFilters(params: {
-  dateFrom: string;
-  dateTo: string;
-  supplierId: string;
-  status: string;
-  limit: number;
-  offset: number;
-}) {
-  return {
-    dateFrom: params.dateFrom || null,
-    dateTo: params.dateTo || null,
-    supplierId: params.supplierId ? Number(params.supplierId) : null,
-    status: params.status || null,
-    limit: params.limit,
-    offset: params.offset,
-  };
-}
-
 export function getStatusTone(status: PurchaseStatus) {
   if (status === "paid") {
     return "border-emerald-200 bg-emerald-100 text-emerald-800";

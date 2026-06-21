@@ -578,7 +578,7 @@ async fn create_sale_invoice_impl_tx(
     get_invoice_by_id(pool, invoice_id).await
 }
 
-async fn get_return_by_id(pool: &DbPool, return_id: i64) -> Result<Return, AppError> {
+pub(crate) async fn get_return_by_id(pool: &DbPool, return_id: i64) -> Result<Return, AppError> {
     let return_row = sqlx::query_as::<_, ReturnRow>("SELECT * FROM returns WHERE id = ?")
         .bind(return_id)
         .fetch_one(pool)
