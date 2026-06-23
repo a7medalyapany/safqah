@@ -161,7 +161,7 @@ export default function UsersManagement() {
               ) : (
                 users.map((user) => {
                   const isActive = user.is_active === 1;
-                  const isCurrentUser = false;
+
 
                   return (
                     <tr key={user.id} className="border-b last:border-b-0">
@@ -200,11 +200,6 @@ export default function UsersManagement() {
                             variant="destructive"
                             size="sm"
                             onClick={() => {
-                              if (isCurrentUser) {
-                                toast.error("لا يمكن تعطيل المستخدم الحالي");
-                                return;
-                              }
-
                               const confirmed = window.confirm(
                                 `هل تريد تعطيل المستخدم ${user.name}؟`,
                               );

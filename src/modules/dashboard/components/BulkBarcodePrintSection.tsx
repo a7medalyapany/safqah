@@ -29,7 +29,9 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { Category, Item } from "@/modules/items/types";
 import { parseAppError } from "@/modules/items/utils";
+import { formatEGP } from "@/shared/utils/money";
 import { invoke } from "@/shared/utils/invoke";
+import { printHtml } from "@/shared/utils/printHtml";
 
 type SettingsMap = Record<string, string>;
 type LabelSize = "30x20" | "40x25" | "50x30";
@@ -45,15 +47,6 @@ type GlobalSettings = {
 type SelectedEntry = {
   item: Item;
   quantity: number;
-};
-
-type BarcodeLabelConfig = {
-  itemId: number;
-  quantity: number;
-  showName: boolean;
-  showPrice: boolean;
-  showShopName: boolean;
-  labelSize: LabelSize;
 };
 
 const PAGE_SIZE = 20;
@@ -299,48 +292,49 @@ export const BulkBarcodePrintSection = forwardRef<HTMLDivElement, {}>(
         return;
       }
 
-      const configs: BarcodeLabelConfig[] = validSelectedEntries.map(
-        (entry) => ({
-          itemId: entry.item.id,
-          quantity: entry.quantity,
-          showName: globalSettings.showName,
-          showPrice: globalSettings.showPrice,
-          showShopName: globalSettings.showShopName,
-          labelSize: globalSettings.labelSize,
-        }),
-      );
-
-      console.log("print_barcode_labels configs", configs);
-
       const loadingToastId = toast.loading(`جاري طباعة ${totalLabels} ملصق...`);
       setIsPrinting(true);
 
       try {
-        if (globalSettings.printer.trim()) {
-          await invoke<boolean>(
-            "update_settings",
-            { updates: { label_printer: globalSettings.printer.trim() } },
-            { toast: false },
-          );
-        }
+        const labelsHtml = validSelectedEntries
+          .flatMap((entry) =>
+            Array.from({ length: entry.quantity }).map(() => {
+              const { item } = entry;
+              const s = globalSettings;
+              return `
+        <div style="
+          display:inline-flex;flex-direction:column;align-items:center;justify-content:center;
+          width:${s.labelSize === "30x20" ? "50" : s.labelSize === "50x30" ? "70" : "60"}mm;
+          height:${s.labelSize === "30x20" ? "35" : s.labelSize === "50x30" ? "45" : "40"}mm;
+          padding:4px;margin:2px;border:1px dashed #ccc;
+          font-family:'Segoe UI',Tahoma,Arial;text-align:center;overflow:hidden;
+          ${s.labelSize === "50x30" ? "" : "font-size:10px"}
+        ">
+          ${s.showShopName ? `<div style="font-size:9px;margin-bottom:2px">اسم المحل</div>` : ""}
+          <img src="https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(item.barcode ?? "")}&code=Code128&dpi=96" style="max-width:90%;height:auto" />
+          <div style="font-size:9px;font-family:monospace;margin-top:2px">${item.barcode}</div>
+          ${s.showName ? `<div style="font-size:10px;font-weight:500;margin-top:2px">${item.name_ar}</div>` : ""}
+          ${s.showPrice ? `<div style="font-size:10px;margin-top:2px">${formatEGP(item.sell_price_millieme)}</div>` : ""}
+        </div>`;
+            }),
+          )
+          .join("");
 
-        await invoke<boolean>(
-          "print_barcode_labels",
-          { configs },
-          { toast: false },
-        );
+        const html = `
+        <html dir="rtl" lang="ar">
+          <head><meta charset="utf-8"><title>ملصقات باركود</title>
+          <style>
+            body{margin:10px;direction:rtl;text-align:center}
+            @page{size:auto;margin:5mm}
+            @media print{body{margin:0}}
+          </style></head>
+          <body>${labelsHtml}</body>
+        </html>`;
+        printHtml(html);
 
-        if (selectedEntries.length !== validSelectedEntries.length) {
-          toast.success(
-            `تم طباعة ${totalLabels} ملصق — فشل ${selectedEntries.length - validSelectedEntries.length} صنف`,
-            { id: loadingToastId },
-          );
-        } else {
-          toast.success(`تم إرسال ${totalLabels} ملصق للطابعة`, {
-            id: loadingToastId,
-          });
-        }
-
+        toast.success(`تم إرسال ${totalLabels} ملصق للطابعة`, {
+          id: loadingToastId,
+        });
         clearSelection();
       } catch (error) {
         toast.error(parseAppError(error).message_ar, { id: loadingToastId });

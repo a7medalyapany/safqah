@@ -142,6 +142,14 @@ export function InvoiceItemAdjustDialog({
                   step="0.001"
                   value={unitPrice}
                   onChange={(event) => setUnitPrice(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") {
+                      return;
+                    }
+
+                    event.preventDefault();
+                    handleSave();
+                  }}
                   placeholder="0"
                 />
               </label>
@@ -156,6 +164,14 @@ export function InvoiceItemAdjustDialog({
                   step="1"
                   value={discountPercent}
                   onChange={(event) => setDiscountPercent(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") {
+                      return;
+                    }
+
+                    event.preventDefault();
+                    handleSave();
+                  }}
                   placeholder="0"
                 />
               </label>

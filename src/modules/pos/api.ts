@@ -2,6 +2,7 @@ import type { Category, Item } from "@/modules/items/types";
 import type { Customer } from "@/modules/parties/types";
 import type { SaleInvoiceSuccess } from "@/modules/pos/InvoiceSuccessDialog";
 import type { CreateSaleInvoicePayload } from "@/modules/pos/types";
+import type { InvoicePrintData } from "@/modules/sales/types";
 import { invoke } from "@/shared/utils/invoke";
 
 export function listCategories() {
@@ -34,8 +35,8 @@ export function createSaleInvoice(payload: CreateSaleInvoicePayload) {
   );
 }
 
-export function printReceipt(invoiceId: number) {
-  return invoke("print_receipt", { invoiceId }, { toast: false });
+export function getInvoicePrintData(invoiceId: number) {
+  return invoke<InvoicePrintData>("get_invoice_print_data", { invoiceId }, { toast: false });
 }
 
 export function generateInvoicePdf(invoiceId: number) {

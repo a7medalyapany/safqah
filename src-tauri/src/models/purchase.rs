@@ -168,6 +168,21 @@ pub struct CreatePurchasePayload {
 
 #[derive(Debug, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct UpdatePurchasePayload {
+    pub purchase_id: i64,
+    pub supplier_id: Option<i64>,
+    pub items: Vec<PurchaseItemPayload>,
+    pub global_discount_millieme: i64,
+    pub payment_method: String,
+    pub paid_millieme: i64,
+    pub notes: Option<String>,
+    /// Optional invoice date override (e.g. "2026-06-23"). When provided it
+    /// replaces the stored `created_at` so the user can correct the date.
+    pub invoice_date: Option<String>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PurchaseItemPayload {
     pub item_id: i64,
     pub qty: i64,

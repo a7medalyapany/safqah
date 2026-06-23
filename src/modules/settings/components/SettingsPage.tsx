@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/button";
 import { parseAppError } from "@/modules/items/utils";
 import { DataImportSection } from "@/modules/settings/DataImportSection";
 import { BackupSection } from "@/modules/settings/BackupSection";
-import { printTestReceipt } from "@/modules/settings/api";
+import { printHtml } from "@/shared/utils/printHtml";
 import { tabLabels } from "@/modules/settings/constants";
 import {
   Field,
@@ -108,13 +108,10 @@ export default function SettingsPage() {
     }
   };
 
-  const handlePrintTest = async () => {
-    try {
-      await printTestReceipt(settings.defaultPrinter.trim() || undefined);
-      toast.success("تم إرسال طباعة تجريبية");
-    } catch {
-      // The invoke wrapper already showed the Arabic error.
-    }
+  const handlePrintTest = () => {
+    const html = `<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>طباعة تجريبية</title><style>body{font-family:'Segoe UI',Tahoma,Arial;padding:20px;margin:0;direction:rtl;text-align:center}.header{margin-bottom:16px}.header h1{margin:0;font-size:20px}.line{border-top:1px dashed #333;margin:12px 0}.item{display:flex;justify-content:space-between;padding:4px 0;font-size:13px}.total{font-weight:bold;font-size:15px;border-top:2px solid #333;padding-top:6px;margin-top:4px}.footer{margin-top:16px;font-size:12px;color:#888}</style></head><body><div class="header"><h1>${settings.shopName || "صفقة"}</h1><p>${settings.shopAddress || ""}</p><p>${settings.shopPhone || ""}</p><hr class="line"><p>طباعة تجريبية</p><p>${new Date().toLocaleDateString("ar-EG")}</p><hr class="line"><div class="item"><span>صنف تجريبي 1</span><span>١٠٫٠٠ ج.م</span></div><div class="item"><span>صنف تجريبي 2</span><span>٢٥٫٥٠ ج.م</span></div><hr class="line"><div class="total"><span>الإجمالي</span><span>٣٥٫٥٠ ج.م</span></div><div class="footer">شكراً لزيارتكم — طباعة تجريبية</div></body></html>`;
+    printHtml(html);
+    toast.success("تم إرسال طباعة تجريبية");
   };
 
   const selectedPrinter =

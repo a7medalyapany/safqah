@@ -2,7 +2,7 @@ import { Boxes, CircleAlert, PackageSearch, Trash2 } from "lucide-react";
 
 import { StatCard } from "@/shared/components/StatCard";
 
-export type ItemStats = {
+type ItemStats = {
   totalItems: number;
   totalStock: number;
   lowStock: number;

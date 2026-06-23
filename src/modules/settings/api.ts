@@ -12,6 +12,4 @@ export function vacuumDatabase() {
   return invoke<boolean>("vacuum_database", undefined, { toast: false });
 }
 
-export function printTestReceipt(printerName: string | undefined) {
-  return invoke("print_test_receipt", { printerName });
-}
+
