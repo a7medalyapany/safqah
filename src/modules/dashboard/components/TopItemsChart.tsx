@@ -19,6 +19,9 @@ type ChartMouseState = {
   activePayload?: { payload?: TopItemRow }[];
 };
 
+const truncateLabel = (value: string, maxLength = 18) =>
+  value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+
 export function TopItemsChart({ data }: { data: TopItemRow[] }) {
   const [activeItem, setActiveItem] = useState<TopItemRow | null>(null);
   const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 });
@@ -37,7 +40,7 @@ export function TopItemsChart({ data }: { data: TopItemRow[] }) {
       <div
         dir="ltr"
         style={{ direction: "ltr" }}
-        className="relative h-[250px] min-w-0"
+        className="relative h-62.5 min-w-0"
       >
         <ResponsiveContainer width="100%" height="100%" debounce={50}>
           <BarChart
@@ -46,12 +49,16 @@ export function TopItemsChart({ data }: { data: TopItemRow[] }) {
             margin={{ top: 6, right: 12, left: 20, bottom: 0 }}
             onMouseMove={(state: ChartMouseState) => {
               const nextItem = state.isTooltipActive
-                ? state.activePayload?.[0]?.payload ?? null
+                ? (state.activePayload?.[0]?.payload ?? null)
                 : null;
               setActiveItem((current) =>
                 current?.item_id === nextItem?.item_id ? current : nextItem,
               );
-              if (nextItem && state.chartX !== undefined && state.chartY !== undefined) {
+              if (
+                nextItem &&
+                state.chartX !== undefined &&
+                state.chartY !== undefined
+              ) {
                 setTooltipPosition({ x: state.chartX, y: state.chartY });
               }
             }}
@@ -62,9 +69,28 @@ export function TopItemsChart({ data }: { data: TopItemRow[] }) {
             <YAxis
               type="category"
               dataKey="name_ar"
-              width={130}
+              width={120}
               tickLine={false}
               axisLine={false}
+              tick={({ x, y, payload }) => {
+                const label = String(payload.value ?? "");
+
+                return (
+                  <g transform={`translate(${x},${y})`}>
+                    <title>{label}</title>
+                    <text
+                      x={0}
+                      y={0}
+                      dy={4}
+                      textAnchor="end"
+                      fill="currentColor"
+                      className="text-muted-foreground"
+                    >
+                      {truncateLabel(label)}
+                    </text>
+                  </g>
+                );
+              }}
             />
             <Bar
               dataKey="total_qty_sold"
@@ -87,11 +113,19 @@ export function TopItemsChart({ data }: { data: TopItemRow[] }) {
                   : "translateX(12px)",
             }}
           >
-            <p className="truncate font-semibold text-foreground">{activeItem.name_ar}</p>
+            <p className="truncate font-semibold text-foreground">
+              {activeItem.name_ar}
+            </p>
             <div className="mt-2 space-y-1 text-muted-foreground">
               <InfoRow label="الكمية" value={activeItem.total_qty_sold} />
-              <InfoRow label="الإيراد" value={formatEGP(activeItem.total_revenue_millieme)} />
-              <InfoRow label="الربح" value={formatEGP(activeItem.gross_profit_millieme)} />
+              <InfoRow
+                label="الإيراد"
+                value={formatEGP(activeItem.total_revenue_millieme)}
+              />
+              <InfoRow
+                label="الربح"
+                value={formatEGP(activeItem.gross_profit_millieme)}
+              />
             </div>
           </div>
         ) : null}

@@ -2,6 +2,7 @@ import type {
   CreateReturnPayload,
   InvoiceDetail,
   InvoiceFilters,
+  InvoicePrintData,
   InvoiceStats,
   InvoiceSummary,
   SaleReturn,
@@ -24,8 +25,8 @@ export function createReturn(payload: CreateReturnPayload) {
   return invoke<SaleReturn>("create_return", { payload }, { toast: false });
 }
 
-export function printReceipt(invoiceId: number) {
-  return invoke("print_receipt", { invoiceId }, { toast: false });
+export function getInvoicePrintData(invoiceId: number) {
+  return invoke<InvoicePrintData>("get_invoice_print_data", { invoiceId }, { toast: false });
 }
 
 export function generateInvoicePdf(invoiceId: number) {

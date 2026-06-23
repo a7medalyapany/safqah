@@ -1,5 +1,3 @@
-import type { AppErrorShape } from "@/shared/types/errors";
-
 export type PartyKind = "customer" | "supplier";
 
 export type Customer = {
@@ -38,4 +36,3 @@ export type PartyFormValues = {
   notes: string;
 };
 
-export type { AppErrorShape };

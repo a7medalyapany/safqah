@@ -20,8 +20,8 @@ import {
 } from "@/modules/pos/paymentRules";
 import {
   generateInvoicePdf,
+  getInvoicePrintData,
   openWhatsappWithInvoice,
-  printReceipt,
 } from "@/modules/pos/api";
 import type { Customer } from "@/modules/parties/types";
 import type { Item } from "@/modules/items/types";
@@ -37,6 +37,7 @@ import { buildSalePayload } from "@/modules/pos/utils";
 import { useBarcodeScanner } from "@/shared/hooks/useBarcodeScanner";
 import { useDebouncedValue } from "@/shared/hooks/useDebouncedValue";
 import { formatEGP } from "@/shared/utils/money";
+import { printHtml } from "@/shared/utils/printHtml";
 import { useCartStore } from "@/store/cartSlice";
 import { useSessionStore } from "@/store/sessionSlice";
 import { Button } from "@/components/ui/button";
@@ -138,7 +139,64 @@ export default function PosPage() {
     }
 
     try {
-      await printReceipt(successInvoice.id);
+      const data = await getInvoicePrintData(successInvoice.id);
+      const itemsHtml = data.items
+        .map(
+          (item) => `
+        <tr>
+          <td style="padding:6px 8px;border-bottom:1px solid #ddd;text-align:right">${item.itemNameAr}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #ddd;text-align:center">${item.qty}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #ddd;text-align:center">${formatEGP(item.unitPriceMillieme)}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #ddd;text-align:center">${formatEGP(item.discountMillieme)}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #ddd;text-align:left">${formatEGP(item.totalMillieme)}</td>
+        </tr>`,
+        )
+        .join("");
+
+      const html = `
+        <html dir="rtl" lang="ar">
+          <head><meta charset="utf-8"><title>فاتورة ${data.invoiceNumber}</title>
+          <style>
+            body{font-family:'Segoe UI',Tahoma,Arial;padding:20px;margin:0;direction:rtl}
+            .header{text-align:center;margin-bottom:16px}
+            .header h1{margin:0;font-size:18px}
+            .header p{margin:2px 0;font-size:13px;color:#555}
+            table{width:100%;border-collapse:collapse;margin:12px 0;font-size:13px}
+            th{background:#f5f5f5;padding:6px 8px;border-bottom:2px solid #ddd;text-align:right}
+            .totals{margin-top:12px;font-size:13px}
+            .totals div{display:flex;justify-content:space-between;padding:3px 0}
+            .totals .grand{font-weight:bold;font-size:15px;border-top:2px solid #333;padding-top:6px;margin-top:4px}
+            .footer{text-align:center;margin-top:16px;font-size:12px;color:#888}
+          </style></head>
+          <body>
+            <div class="header">
+              <h1>${data.shop.shopName}</h1>
+              ${data.shop.shopAddress ? `<p>${data.shop.shopAddress}</p>` : ""}
+              ${data.shop.shopPhone ? `<p>${data.shop.shopPhone}</p>` : ""}
+              <p>رقم الفاتورة: ${data.invoiceNumber}</p>
+              ${data.cashierName ? `<p>الكاشير: ${data.cashierName}</p>` : ""}
+              ${data.customerName ? `<p>العميل: ${data.customerName}</p>` : ""}
+            </div>
+            <table>
+              <thead><tr>
+                <th style="text-align:right">الصنف</th>
+                <th style="text-align:center">الكمية</th>
+                <th style="text-align:center">السعر</th>
+                <th style="text-align:center">الخصم</th>
+                <th style="text-align:left">الإجمالي</th>
+              </tr></thead>
+              <tbody>${itemsHtml}</tbody>
+            </table>
+            <div class="totals">
+              <div><span>المجموع الفرعي</span><span>${formatEGP(data.subtotalMillieme)}</span></div>
+              ${data.discountMillieme ? `<div><span>الخصم</span><span>${formatEGP(data.discountMillieme)}</span></div>` : ""}
+              <div class="grand"><span>الإجمالي</span><span>${formatEGP(data.totalMillieme)}</span></div>
+              <div><span>المدفوع</span><span>${formatEGP(data.paidMillieme)}</span></div>
+            </div>
+            <div class="footer">شكراً لزيارتكم</div>
+          </body>
+        </html>`;
+      printHtml(html);
       toast.success("جاري الطباعة...");
     } catch (error) {
       toast.error(parseAppError(error).message_ar);

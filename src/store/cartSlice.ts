@@ -20,7 +20,7 @@ type CartItemOverrides = {
   discountPercent?: number;
 };
 
-export interface CartState {
+interface CartState {
   items: CartItem[];
   customerId: number | null;
   customerName: string | null;
@@ -38,7 +38,6 @@ export interface CartState {
   removeItem: (itemId: number) => void;
   updateQty: (itemId: number, qty: number) => void;
   updateLineDiscountPercent: (itemId: number, discountPercent: number) => void;
-  updateLineDiscount: (itemId: number, discountMillieme: number) => void;
   updateLineUnitPrice: (itemId: number, unitPriceMillieme: number) => void;
   setGlobalDiscount: (discountMillieme: number) => void;
   setCustomer: (id: number, name: string) => void;
@@ -284,43 +283,6 @@ const createCartState: StateCreator<CartState> = (set, get) => ({
               }),
             }
           : item,
-      );
-
-      return {
-        items,
-        globalDiscountMillieme: Math.min(
-          state.globalDiscountMillieme,
-          Math.max(0, computeSubtotal(items) - computeMinimumSubtotal(items)),
-        ),
-      };
-    });
-  },
-  updateLineDiscount: (itemId, discountMillieme) => {
-    set((state) => {
-      const item = state.items.find((i) => i.itemId === itemId);
-      if (!item) return state;
-
-      const safeDiscount = clampNonNegativeInteger(discountMillieme);
-      const maxDiscount = item.unitPriceMillieme * item.qty;
-      const clampedDiscount = Math.min(safeDiscount, maxDiscount);
-
-      const discountPercent =
-        maxDiscount === 0
-          ? 0
-          : Math.floor((clampedDiscount / maxDiscount) * 100);
-
-      const items = state.items.map((i) =>
-        i.itemId === itemId
-          ? {
-              ...i,
-              ...normalizeLine({
-                qty: i.qty,
-                unitPriceMillieme: i.unitPriceMillieme,
-                discountPercent,
-                buyPriceMillieme: i.buyPriceMillieme,
-              }),
-            }
-          : i,
       );
 
       return {

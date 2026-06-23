@@ -25,8 +25,9 @@ use commands::{
         list_categories, list_items, update_item,
     },
     print::{
-        generate_invoice_pdf, get_label_printer_list, list_printers, open_whatsapp_with_invoice,
-        print_barcode_labels, print_receipt,
+        generate_invoice_pdf, get_barcode_print_data, get_invoice_print_data,
+        get_label_printer_list, get_purchase_print_data, get_return_print_data, list_printers,
+        open_whatsapp_with_invoice,
     },
     reports::{
         report_customer_balances, report_daily_sales, report_low_stock, report_payment_methods,
@@ -39,7 +40,7 @@ use commands::{
     },
     purchases::{
         create_purchase_invoice, get_item_purchase_history, get_purchase_detail, get_purchase_stats,
-        list_purchases,
+        list_purchases, update_purchase_invoice,
     },
     backup::{list_backups, restore_backup, trigger_backup},
     sessions::{
@@ -56,7 +57,6 @@ use commands::{
         complete_setup,
         seed_sample_data,
     },
-    print::print_test_receipt,
     customers::import_customers_csv,
     items::import_items_csv,
     suppliers::import_suppliers_csv,
@@ -64,7 +64,6 @@ use commands::{
 use db::DbPool;
 use errors::AppError;
 use services::backup::BackupService;
-use services::print_queue::{new_print_queue, start_print_queue_worker};
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
 #[tauri::command]
@@ -97,12 +96,9 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let pool = tauri::async_runtime::block_on(db::get_pool());
-            let print_queue = new_print_queue();
             let backup_service = BackupService::new();
             app.manage(pool);
-            app.manage(print_queue.clone());
             app.manage(backup_service.clone());
-            start_print_queue_worker(print_queue, app.handle().clone());
             let backup_worker = backup_service.clone();
 
             tauri::async_runtime::spawn(async move {
@@ -160,11 +156,14 @@ pub fn run() {
             list_purchases,
             get_purchase_detail,
             create_purchase_invoice,
+            update_purchase_invoice,
             get_purchase_stats,
             get_item_purchase_history,
-            print_receipt,
-            print_barcode_labels,
             generate_invoice_pdf,
+            get_invoice_print_data,
+            get_purchase_print_data,
+            get_return_print_data,
+            get_barcode_print_data,
             open_whatsapp_with_invoice,
             list_printers,
             get_label_printer_list,
@@ -193,7 +192,6 @@ pub fn run() {
             is_first_launch,
             complete_setup,
             seed_sample_data,
-            print_test_receipt,
             report_daily_sales,
             report_sales_by_period,
             report_top_items,

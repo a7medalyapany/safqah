@@ -24,13 +24,16 @@ export function PurchaseFormDialog({
   open,
   onOpenChange,
   onSavedWithPriceSuggestions,
+  purchaseToEdit = null,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSavedWithPriceSuggestions: (suggestions: PriceSuggestion[]) => void;
+  purchaseToEdit?: PurchaseDetail | null;
 }) {
   const queryClient = useQueryClient();
   const activeSession = useSessionStore((state) => state.activeSession);
+  const isEditMode = purchaseToEdit !== null;
   const [supplierId, setSupplierId] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cash");
   const [notes, setNotes] = useState("");
@@ -48,6 +51,7 @@ export function PurchaseFormDialog({
   >(null);
   const [discount, setDiscount] = useState("");
   const [paid, setPaid] = useState("");
+  const [invoiceDate, setInvoiceDate] = useState("");
   const [newItemValues, setNewItemValues] = useState({
     name: "",
     barcode: "",
@@ -66,17 +70,11 @@ export function PurchaseFormDialog({
       return;
     }
 
-    setSupplierId("");
-    setPaymentMethod("cash");
-    setNotes("");
     setTab("existing");
     setSearch("");
-    setSelectedItems([]);
     setSelectedHistoryItem(null);
     setHistoryByItemId({});
     setHistoryLoadingItemId(null);
-    setDiscount("");
-    setPaid("");
     setNewItemValues({
       name: "",
       barcode: "",
@@ -85,7 +83,49 @@ export function PurchaseFormDialog({
       buyPrice: "",
       sellPrice: "",
     });
-  }, [open]);
+
+    if (purchaseToEdit) {
+      setSupplierId(
+        purchaseToEdit.supplier_id !== null
+          ? String(purchaseToEdit.supplier_id)
+          : "",
+      );
+      setPaymentMethod(purchaseToEdit.payment_method as PaymentMethod);
+      setNotes(purchaseToEdit.notes ?? "");
+      setSelectedItems(
+        purchaseToEdit.items.map((item) => ({
+          itemId: item.item_id,
+          itemName: item.item_name_ar,
+          qty: String(item.qty),
+          unitCost: toMoneyInput(item.unit_cost_millieme),
+          suggestedSellPrice:
+            item.suggested_sell_price_millieme !== null
+              ? toMoneyInput(item.suggested_sell_price_millieme)
+              : "",
+          currentSellPriceMillieme: item.suggested_sell_price_millieme ?? 0,
+          lastPurchaseCostMillieme: null,
+          lastPurchaseDate: null,
+          isNew: false,
+        })),
+      );
+      setDiscount(
+        purchaseToEdit.discount_millieme
+          ? toMoneyInput(purchaseToEdit.discount_millieme)
+          : "",
+      );
+      setPaid(toMoneyInput(purchaseToEdit.paid_millieme));
+      setInvoiceDate(purchaseToEdit.created_at.slice(0, 10));
+      return;
+    }
+
+    setSupplierId("");
+    setPaymentMethod("cash");
+    setNotes("");
+    setSelectedItems([]);
+    setDiscount("");
+    setPaid("");
+    setInvoiceDate("");
+  }, [open, purchaseToEdit]);
 
   const suppliersQuery = useQuery({
     queryKey: ["suppliers"],
@@ -136,7 +176,7 @@ export function PurchaseFormDialog({
     }
   }, [paidMillieme, paymentMethod, totalMillieme]);
 
-  const createPurchaseMutation = useMutation({
+  const savePurchaseMutation = useMutation({
     mutationFn: async () => {
       if (selectedItems.length === 0) {
         throw new Error("أضف صنفًا واحدًا على الأقل");
@@ -164,6 +204,21 @@ export function PurchaseFormDialog({
       const suggestions = buildPriceSuggestions(selectedItems);
       pendingSuggestionsRef.current = suggestions;
 
+      if (purchaseToEdit) {
+        return invoke<PurchaseDetail>("update_purchase_invoice", {
+          payload: {
+            purchaseId: purchaseToEdit.id,
+            supplierId: supplierId ? Number(supplierId) : null,
+            items: itemsPayload,
+            globalDiscountMillieme: discountMillieme,
+            paymentMethod,
+            paidMillieme,
+            notes: notes.trim() || null,
+            invoiceDate: invoiceDate || null,
+          },
+        });
+      }
+
       return invoke<PurchaseDetail>("create_purchase_invoice", {
         payload: {
           supplierId: supplierId ? Number(supplierId) : null,
@@ -181,8 +236,20 @@ export function PurchaseFormDialog({
         queryClient.invalidateQueries({ queryKey: ["purchases"] }),
         queryClient.invalidateQueries({ queryKey: ["purchases-stats"] }),
         queryClient.invalidateQueries({ queryKey: ["items"] }),
+        queryClient.invalidateQueries({ queryKey: ["suppliers"] }),
+        ...(purchaseToEdit
+          ? [
+              queryClient.invalidateQueries({
+                queryKey: ["purchase-detail", purchaseToEdit.id],
+              }),
+            ]
+          : []),
       ]);
-      toast.success("تم حفظ فاتورة الشراء بنجاح");
+      toast.success(
+        purchaseToEdit
+          ? "تم تحديث فاتورة الشراء بنجاح"
+          : "تم حفظ فاتورة الشراء بنجاح",
+      );
       onOpenChange(false);
       onSavedWithPriceSuggestions(pendingSuggestionsRef.current);
       pendingSuggestionsRef.current = [];
@@ -374,7 +441,7 @@ export function PurchaseFormDialog({
   };
 
   const canSubmit =
-    selectedItems.length > 0 && !createPurchaseMutation.isPending;
+    selectedItems.length > 0 && !savePurchaseMutation.isPending;
   const selectedItemHistory = selectedHistoryItem
     ? (historyByItemId[selectedHistoryItem.id] ?? null)
     : null;
@@ -386,9 +453,15 @@ export function PurchaseFormDialog({
         className="max-h-[92vh] overflow-y-auto sm:max-w-4xl"
       >
         <DialogHeader className="text-right">
-          <DialogTitle>فاتورة شراء جديدة</DialogTitle>
+          <DialogTitle>
+            {isEditMode
+              ? `تعديل فاتورة الشراء ${purchaseToEdit?.invoice_number ?? ""}`.trim()
+              : "فاتورة شراء جديدة"}
+          </DialogTitle>
           <DialogDescription>
-            أدخل بيانات المورد والأصناف ثم احفظ الفاتورة.
+            {isEditMode
+              ? "عدّل بيانات المورد والأصناف ثم احفظ التغييرات."
+              : "أدخل بيانات المورد والأصناف ثم احفظ الفاتورة."}
           </DialogDescription>
         </DialogHeader>
 
@@ -432,6 +505,16 @@ export function PurchaseFormDialog({
                 ))}
               </div>
             </FilterField>
+
+            {isEditMode ? (
+              <FilterField label="تاريخ الفاتورة">
+                <Input
+                  type="date"
+                  value={invoiceDate}
+                  onChange={(event) => setInvoiceDate(event.target.value)}
+                />
+              </FilterField>
+            ) : null}
           </div>
 
           <FilterField label="ملاحظات">
@@ -815,10 +898,10 @@ export function PurchaseFormDialog({
 
         <DialogFooter className="flex-row-reverse justify-start gap-2">
           <Button
-            onClick={() => createPurchaseMutation.mutate()}
+            onClick={() => savePurchaseMutation.mutate()}
             disabled={!canSubmit}
           >
-            حفظ الفاتورة
+            {isEditMode ? "حفظ التغييرات" : "حفظ الفاتورة"}
           </Button>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             إلغاء

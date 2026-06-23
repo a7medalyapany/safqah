@@ -24,6 +24,29 @@ export function CartTable({
   onUpdateLineUnitPrice: (itemId: number, unitPriceMillieme: number) => void;
   onRemoveItem: (itemId: number) => void;
 }) {
+  const commitLineUnitPrice = (
+    item: CartItem,
+    rawValue: string,
+    input: HTMLInputElement,
+  ) => {
+    try {
+      const nextUnitPriceMillieme = toMillieme(rawValue || 0);
+
+      if (nextUnitPriceMillieme < item.buyPriceMillieme) {
+        toast.error("لا يمكن البيع بأقل من سعر التكلفة");
+        onUpdateLineUnitPrice(item.itemId, item.unitPriceMillieme);
+        input.value = moneyToInput(item.unitPriceMillieme);
+        return;
+      }
+
+      onUpdateLineUnitPrice(item.itemId, nextUnitPriceMillieme);
+    } catch {
+      onUpdateLineUnitPrice(item.itemId, item.unitPriceMillieme);
+      input.value = moneyToInput(item.unitPriceMillieme);
+      toast.error("سعر البيع غير صحيح");
+    }
+  };
+
   return (
     <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border">
       <div className="h-full overflow-auto">
@@ -35,7 +58,7 @@ export function CartTable({
           <table className="min-w-full text-right">
             <thead className="sticky top-0 bg-muted/60 text-sm text-muted-foreground">
               <tr>
-                <TableHead>الصنف</TableHead>
+                <TableHead className="whitespace-nowrap">الصنف</TableHead>
                 <TableHead>الكمية</TableHead>
                 <TableHead>السعر</TableHead>
                 <TableHead>الخصم %</TableHead>
@@ -46,14 +69,16 @@ export function CartTable({
             <tbody>
               {items.map((item) => (
                 <tr key={item.itemId} className="border-t align-top">
-                  <TableCell className="font-medium">{item.nameAr}</TableCell>
+                  <TableCell className="whitespace-nowrap font-medium">
+                    {item.nameAr}
+                  </TableCell>
                   <TableCell>
                     <Input
                       dir="rtl"
                       type="number"
                       min={1}
                       step="1"
-                      className="w-20 text-center"
+                      className="w-16 text-center"
                       value={String(item.qty)}
                       onChange={(event) =>
                         onUpdateQty(
@@ -70,40 +95,26 @@ export function CartTable({
                       type="number"
                       min={0}
                       step="0.001"
-                      className="w-28 text-center"
+                      className="w-24 text-center"
                       defaultValue={moneyToInput(item.unitPriceMillieme)}
                       onBlur={(event) => {
-                        try {
-                          const nextUnitPriceMillieme = toMillieme(
-                            event.target.value || 0,
-                          );
-
-                          if (nextUnitPriceMillieme < item.buyPriceMillieme) {
-                            toast.error("لا يمكن البيع بأقل من سعر التكلفة");
-                            onUpdateLineUnitPrice(
-                              item.itemId,
-                              item.unitPriceMillieme,
-                            );
-                            event.target.value = moneyToInput(
-                              item.unitPriceMillieme,
-                            );
-                            return;
-                          }
-
-                          onUpdateLineUnitPrice(
-                            item.itemId,
-                            nextUnitPriceMillieme,
-                          );
-                        } catch {
-                          onUpdateLineUnitPrice(
-                            item.itemId,
-                            item.unitPriceMillieme,
-                          );
-                          event.target.value = moneyToInput(
-                            item.unitPriceMillieme,
-                          );
-                          toast.error("سعر البيع غير صحيح");
+                        commitLineUnitPrice(
+                          item,
+                          event.target.value,
+                          event.target,
+                        );
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") {
+                          return;
                         }
+
+                        event.preventDefault();
+                        commitLineUnitPrice(
+                          item,
+                          event.currentTarget.value,
+                          event.currentTarget,
+                        );
                       }}
                     />
                   </TableCell>
@@ -115,7 +126,7 @@ export function CartTable({
                       min={0}
                       max={100}
                       step="1"
-                      className="w-24 text-center"
+                      className="w-20 text-center"
                       defaultValue={String(item.discountPercent)}
                       onBlur={(event) => {
                         try {

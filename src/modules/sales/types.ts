@@ -76,3 +76,35 @@ export type SaleReturn = {
   notes: string | null;
   created_at: string;
 };
+
+export type ShopInfo = {
+  shopName: string;
+  shopAddress: string;
+  shopPhone: string;
+};
+
+export type InvoicePrintItem = {
+  itemNameAr: string;
+  qty: number;
+  unitPriceMillieme: number;
+  discountMillieme: number;
+  totalMillieme: number;
+};
+
+export type InvoicePrintData = {
+  invoiceNumber: string;
+  customerName: string | null;
+  cashierName: string | null;
+  subtotalMillieme: number;
+  discountMillieme: number;
+  taxMillieme: number;
+  totalMillieme: number;
+  paidMillieme: number;
+  paymentMethod: string;
+  status: string;
+  notes: string | null;
+  createdAt: string;
+  items: InvoicePrintItem[];
+  shop: ShopInfo;
+  customerBalanceMillieme: number | null;
+};

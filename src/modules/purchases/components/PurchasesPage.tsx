@@ -47,6 +47,9 @@ export default function PurchasesPage() {
     null,
   );
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [purchaseToEdit, setPurchaseToEdit] = useState<PurchaseDetail | null>(
+    null,
+  );
   const [isCategoryManagerOpen, setIsCategoryManagerOpen] = useState(false);
   const [priceSuggestions, setPriceSuggestions] = useState<PriceSuggestion[]>(
     [],
@@ -303,9 +306,17 @@ export default function PurchasesPage() {
       </Card>
 
       <PurchaseFormDialog
-        open={isCreateOpen}
-        onOpenChange={setIsCreateOpen}
+        open={isCreateOpen || purchaseToEdit !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setIsCreateOpen(false);
+            setPurchaseToEdit(null);
+          } else {
+            setIsCreateOpen(true);
+          }
+        }}
         onSavedWithPriceSuggestions={handleOpenPriceSuggestions}
+        purchaseToEdit={purchaseToEdit}
       />
 
       <CategoryManagerDialog
@@ -322,6 +333,10 @@ export default function PurchasesPage() {
         }}
         purchase={selectedPurchase}
         isLoading={detailQuery.isLoading}
+        onEdit={(purchase) => {
+          setSelectedPurchaseId(null);
+          setPurchaseToEdit(purchase);
+        }}
       />
 
       <PriceUpdateDialog
