@@ -9,6 +9,7 @@ use crate::{
         CreatePurchasePayload, PurchaseDetail, PurchaseDetailRow, PurchaseFilters, PurchaseInvoice,
         PurchaseInvoiceRow, PurchaseItem, PurchaseItemDetail, PurchaseItemPayload, PurchaseSummary,
         ItemPurchaseHistory, ItemBasePriceRow, LastItemPurchaseRow, ItemPurchaseStatsRow,
+        UpdatePurchasePayload,
     },
 };
 
@@ -96,22 +97,34 @@ fn compute_line_total(line: &PurchaseItemPayload) -> i64 {
     (line.unit_cost_millieme * line.qty).max(0)
 }
 
-fn validate_payload(payload: &CreatePurchasePayload) -> Result<(), AppError> {
-    if payload.items.is_empty() {
+fn validate_purchase_input(
+    items: &[PurchaseItemPayload],
+    global_discount_millieme: i64,
+    paid_millieme: i64,
+) -> Result<(), AppError> {
+    if items.is_empty() {
         return Err(AppError::validation("أضف صنفًا واحدًا على الأقل"));
     }
 
-    if payload.global_discount_millieme < 0 || payload.paid_millieme < 0 {
+    if global_discount_millieme < 0 || paid_millieme < 0 {
         return Err(AppError::validation("قيم المبالغ غير صحيحة"));
     }
 
-    for item in &payload.items {
+    for item in items {
         if item.qty <= 0 || item.unit_cost_millieme < 0 {
             return Err(AppError::validation("بيانات الأصناف غير صحيحة"));
         }
     }
 
     Ok(())
+}
+
+fn validate_payload(payload: &CreatePurchasePayload) -> Result<(), AppError> {
+    validate_purchase_input(
+        &payload.items,
+        payload.global_discount_millieme,
+        payload.paid_millieme,
+    )
 }
 
 fn purchase_status_and_paid(
@@ -377,6 +390,237 @@ async fn create_purchase_invoice_impl(
     get_purchase_by_id(pool, purchase_id).await
 }
 
+async fn update_purchase_invoice_impl(
+    pool: &DbPool,
+    payload: UpdatePurchasePayload,
+) -> Result<PurchaseInvoice, AppError> {
+    validate_purchase_input(
+        &payload.items,
+        payload.global_discount_millieme,
+        payload.paid_millieme,
+    )?;
+
+    let invoice_date = normalize_optional_string(payload.invoice_date);
+
+    let mut tx = pool.begin().await?;
+
+    // Load the existing invoice so we can reverse its previous effects.
+    let existing = sqlx::query_as::<_, PurchaseInvoiceRow>(
+        "SELECT * FROM purchase_invoices WHERE id = ?",
+    )
+    .bind(payload.purchase_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or_else(|| AppError::not_found("الفاتورة"))?;
+
+    let existing_items = sqlx::query_as::<_, PurchaseItem>(
+        "SELECT * FROM purchase_items WHERE purchase_id = ? ORDER BY id ASC",
+    )
+    .bind(payload.purchase_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    // Validate that every new line references an existing, active item before
+    // mutating anything.
+    let mut validated_items = Vec::with_capacity(payload.items.len());
+    for item in &payload.items {
+        let active_item = get_active_item(&mut tx, item.item_id).await?;
+        validated_items.push(active_item);
+    }
+
+    // ── Reverse the old invoice's stock effects ──────────────────────────
+    for old_item in &existing_items {
+        sqlx::query(
+            r#"
+            UPDATE items SET
+              current_stock = current_stock - ?,
+              updated_at = datetime('now')
+            WHERE id = ?
+            "#,
+        )
+        .bind(old_item.qty)
+        .bind(old_item.item_id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO stock_movements (
+              item_id,
+              delta,
+              movement_type,
+              reference_id,
+              reference_type,
+              notes
+            )
+            VALUES (?, ?, 'adjustment', ?, 'purchase_edit', 'عكس فاتورة شراء عند التعديل')
+            "#,
+        )
+        .bind(old_item.item_id)
+        .bind(-old_item.qty)
+        .bind(payload.purchase_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    // Reverse the old supplier balance impact (only deferred/partial added to it).
+    if let Some(old_supplier_id) = existing.supplier_id {
+        if matches!(existing.status.as_str(), "deferred" | "partial") {
+            let old_remaining = existing.total_millieme - existing.paid_millieme;
+            sqlx::query(
+                "UPDATE suppliers SET balance_millieme = balance_millieme - ? WHERE id = ?",
+            )
+            .bind(old_remaining)
+            .bind(old_supplier_id)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    // Remove the old line items; they are fully replaced below.
+    sqlx::query("DELETE FROM purchase_items WHERE purchase_id = ?")
+        .bind(payload.purchase_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // ── Apply the edited invoice ─────────────────────────────────────────
+    let subtotal_millieme: i64 = payload.items.iter().map(compute_line_total).sum();
+    let total_millieme = (subtotal_millieme - payload.global_discount_millieme).max(0);
+    let payment_method = payload.payment_method.trim().to_owned();
+    let (status, paid_millieme) =
+        purchase_status_and_paid(&payment_method, payload.paid_millieme, total_millieme);
+    let notes = normalize_optional_string(payload.notes);
+
+    for (item, active_item) in payload.items.iter().zip(validated_items.iter()) {
+        let line_total = compute_line_total(item);
+        sqlx::query(
+            r#"
+            INSERT INTO purchase_items (
+              purchase_id,
+              item_id,
+              qty,
+              unit_cost_millieme,
+              suggested_sell_price_millieme,
+              total_millieme
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(payload.purchase_id)
+        .bind(item.item_id)
+        .bind(item.qty)
+        .bind(item.unit_cost_millieme)
+        .bind(item.suggested_sell_price_millieme)
+        .bind(line_total)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            UPDATE items SET
+              current_stock = current_stock + ?,
+              buy_price_millieme = ?,
+              updated_at = datetime('now')
+            WHERE id = ?
+            "#,
+        )
+        .bind(item.qty)
+        .bind(item.unit_cost_millieme)
+        .bind(active_item.id)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO stock_movements (
+              item_id,
+              delta,
+              movement_type,
+              reference_id,
+              reference_type
+            )
+            VALUES (?, ?, 'purchase', ?, 'purchase')
+            "#,
+        )
+        .bind(active_item.id)
+        .bind(item.qty)
+        .bind(payload.purchase_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    if payload.supplier_id.is_some() && matches!(status, "deferred" | "partial") {
+        let remaining_millieme = total_millieme - paid_millieme;
+        sqlx::query("UPDATE suppliers SET balance_millieme = balance_millieme + ? WHERE id = ?")
+            .bind(remaining_millieme)
+            .bind(payload.supplier_id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    // Persist the invoice header. The invoice_number is immutable; created_at is
+    // only changed when an explicit date override is supplied.
+    if let Some(date) = invoice_date {
+        sqlx::query(
+            r#"
+            UPDATE purchase_invoices SET
+              supplier_id = ?,
+              subtotal_millieme = ?,
+              discount_millieme = ?,
+              total_millieme = ?,
+              paid_millieme = ?,
+              payment_method = ?,
+              status = ?,
+              notes = ?,
+              created_at = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(payload.supplier_id)
+        .bind(subtotal_millieme)
+        .bind(payload.global_discount_millieme)
+        .bind(total_millieme)
+        .bind(paid_millieme)
+        .bind(&payment_method)
+        .bind(status)
+        .bind(notes)
+        .bind(date)
+        .bind(payload.purchase_id)
+        .execute(&mut *tx)
+        .await?;
+    } else {
+        sqlx::query(
+            r#"
+            UPDATE purchase_invoices SET
+              supplier_id = ?,
+              subtotal_millieme = ?,
+              discount_millieme = ?,
+              total_millieme = ?,
+              paid_millieme = ?,
+              payment_method = ?,
+              status = ?,
+              notes = ?
+            WHERE id = ?
+            "#,
+        )
+        .bind(payload.supplier_id)
+        .bind(subtotal_millieme)
+        .bind(payload.global_discount_millieme)
+        .bind(total_millieme)
+        .bind(paid_millieme)
+        .bind(&payment_method)
+        .bind(status)
+        .bind(notes)
+        .bind(payload.purchase_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+
+    get_purchase_by_id(pool, payload.purchase_id).await
+}
+
 async fn get_purchase_stats_impl(pool: &DbPool) -> Result<PurchaseStats, AppError> {
     sqlx::query_as::<_, PurchaseStats>(
         r#"
@@ -486,6 +730,14 @@ pub async fn create_purchase_invoice(
     payload: CreatePurchasePayload,
 ) -> Result<PurchaseInvoice, AppError> {
     create_purchase_invoice_impl(&pool, payload).await
+}
+
+#[tauri::command]
+pub async fn update_purchase_invoice(
+    pool: State<'_, DbPool>,
+    payload: UpdatePurchasePayload,
+) -> Result<PurchaseInvoice, AppError> {
+    update_purchase_invoice_impl(&pool, payload).await
 }
 
 #[tauri::command]
@@ -758,6 +1010,138 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
         assert_eq!(balance, 1000 + 6000);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn update_purchase_invoice_recalculates_stock_and_totals() -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let item_a = insert_item(&pool, "Item A", 5).await?;
+        let item_b = insert_item(&pool, "Item B", 2).await?;
+
+        // Original invoice: 4 of item_a only.
+        let create_payload = CreatePurchasePayload {
+            supplier_id: None,
+            session_id: None,
+            items: vec![PurchaseItemPayload {
+                item_id: item_a,
+                qty: 4,
+                unit_cost_millieme: 10000,
+                suggested_sell_price_millieme: None,
+            }],
+            global_discount_millieme: 0,
+            payment_method: "cash".to_owned(),
+            paid_millieme: 40000,
+            notes: None,
+        };
+        let original = create_purchase_invoice_impl(&pool, create_payload).await?;
+        assert_eq!(get_item_stock(&pool, item_a).await?, 9);
+
+        // Edit: drop item_a to 1, add 3 of item_b, apply discount.
+        let update_payload = UpdatePurchasePayload {
+            purchase_id: original.id,
+            supplier_id: None,
+            items: vec![
+                PurchaseItemPayload {
+                    item_id: item_a,
+                    qty: 1,
+                    unit_cost_millieme: 11000,
+                    suggested_sell_price_millieme: None,
+                },
+                PurchaseItemPayload {
+                    item_id: item_b,
+                    qty: 3,
+                    unit_cost_millieme: 5000,
+                    suggested_sell_price_millieme: Some(9000),
+                },
+            ],
+            global_discount_millieme: 2000,
+            payment_method: "cash".to_owned(),
+            paid_millieme: 24000,
+            notes: Some("معدلة".to_owned()),
+            invoice_date: None,
+        };
+        let updated = update_purchase_invoice_impl(&pool, update_payload).await?;
+
+        // Invoice number is preserved across edits.
+        assert_eq!(updated.invoice_number, original.invoice_number);
+        assert_eq!(updated.items.len(), 2);
+        // subtotal = 1*11000 + 3*5000 = 26000; total = 26000 - 2000 = 24000.
+        assert_eq!(updated.subtotal_millieme, 26000);
+        assert_eq!(updated.total_millieme, 24000);
+        assert_eq!(updated.status, "paid");
+        assert_eq!(updated.notes.as_deref(), Some("معدلة"));
+
+        // Stock: item_a reversed (-4) then +1 => 5 + 1 = 6. item_b +3 => 5.
+        assert_eq!(get_item_stock(&pool, item_a).await?, 6);
+        assert_eq!(get_item_stock(&pool, item_b).await?, 5);
+
+        // Buy price reflects the latest edited cost.
+        let (buy_price,): (i64,) =
+            sqlx::query_as("SELECT buy_price_millieme FROM items WHERE id = ?")
+                .bind(item_a)
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(buy_price, 11000);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn update_purchase_invoice_adjusts_supplier_balance() -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let item_id = insert_item(&pool, "Item A", 0).await?;
+        let supplier_id = insert_supplier(&pool, 1000).await?;
+
+        // Deferred purchase adds remaining (20000) to supplier balance => 21000.
+        let create_payload = CreatePurchasePayload {
+            supplier_id: Some(supplier_id),
+            session_id: None,
+            items: vec![PurchaseItemPayload {
+                item_id,
+                qty: 2,
+                unit_cost_millieme: 10000,
+                suggested_sell_price_millieme: None,
+            }],
+            global_discount_millieme: 0,
+            payment_method: "deferred".to_owned(),
+            paid_millieme: 0,
+            notes: None,
+        };
+        let original = create_purchase_invoice_impl(&pool, create_payload).await?;
+        let (balance,): (i64,) =
+            sqlx::query_as("SELECT balance_millieme FROM suppliers WHERE id = ?")
+                .bind(supplier_id)
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(balance, 21000);
+
+        // Edit to paid cash: old remaining reversed, nothing new added => back to 1000.
+        let update_payload = UpdatePurchasePayload {
+            purchase_id: original.id,
+            supplier_id: Some(supplier_id),
+            items: vec![PurchaseItemPayload {
+                item_id,
+                qty: 2,
+                unit_cost_millieme: 10000,
+                suggested_sell_price_millieme: None,
+            }],
+            global_discount_millieme: 0,
+            payment_method: "cash".to_owned(),
+            paid_millieme: 20000,
+            notes: None,
+            invoice_date: None,
+        };
+        let updated = update_purchase_invoice_impl(&pool, update_payload).await?;
+        assert_eq!(updated.status, "paid");
+
+        let (balance,): (i64,) =
+            sqlx::query_as("SELECT balance_millieme FROM suppliers WHERE id = ?")
+                .bind(supplier_id)
+                .fetch_one(&pool)
+                .await?;
+        assert_eq!(balance, 1000);
 
         Ok(())
     }

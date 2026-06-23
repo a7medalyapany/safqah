@@ -1,4 +1,4 @@
-import { Printer } from "lucide-react";
+import { Pencil, Printer } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
@@ -16,11 +16,13 @@ export function PurchaseDetailSheet({
   onOpenChange,
   purchase,
   isLoading,
+  onEdit,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   purchase: PurchaseDetail | null;
   isLoading: boolean;
+  onEdit?: (purchase: PurchaseDetail) => void;
 }) {
   const handlePrint = () => {
     if (!purchase) {
@@ -142,10 +144,18 @@ export function PurchaseDetailSheet({
               />
             </div>
 
-            <Button variant="outline" onClick={handlePrint}>
-              <Printer />
-              طباعة
-            </Button>
+            <div className="flex flex-row-reverse gap-2">
+              {onEdit ? (
+                <Button onClick={() => onEdit(purchase)}>
+                  <Pencil />
+                  تعديل الفاتورة
+                </Button>
+              ) : null}
+              <Button variant="outline" onClick={handlePrint}>
+                <Printer />
+                طباعة
+              </Button>
+            </div>
           </div>
         )}
       </SheetContent>

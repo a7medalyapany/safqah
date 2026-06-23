@@ -40,7 +40,7 @@ use commands::{
     },
     purchases::{
         create_purchase_invoice, get_item_purchase_history, get_purchase_detail, get_purchase_stats,
-        list_purchases,
+        list_purchases, update_purchase_invoice,
     },
     backup::{list_backups, restore_backup, trigger_backup},
     sessions::{
@@ -156,6 +156,7 @@ pub fn run() {
             list_purchases,
             get_purchase_detail,
             create_purchase_invoice,
+            update_purchase_invoice,
             get_purchase_stats,
             get_item_purchase_history,
             generate_invoice_pdf,
