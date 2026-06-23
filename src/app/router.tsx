@@ -1,27 +1,12 @@
-import { lazy, Suspense, type ReactNode } from "react";
 import { createBrowserRouter } from "react-router-dom";
 
 import { AppLayout } from "@/app/layout";
-import { RouteFallback } from "@/app/routing/RouteFallback";
+import { LazyRoute } from "@/app/routing/LazyRoute";
 import {
   FeatureRoute,
   ProtectedPosRoute,
   RequireAuth,
 } from "@/app/routing/guards";
-
-const DashboardPage = lazy(() => import("@/modules/dashboard"));
-const ItemsPage = lazy(() => import("@/modules/items"));
-const SalesPage = lazy(() => import("@/modules/sales"));
-const PurchasesPage = lazy(() => import("@/modules/purchases"));
-const CustomersPage = lazy(() => import("@/modules/customers"));
-const SuppliersPage = lazy(() => import("@/modules/suppliers"));
-const FinancePage = lazy(() => import("@/modules/finance"));
-const ReportsPage = lazy(() => import("@/modules/reports"));
-const SettingsPage = lazy(() => import("@/modules/settings"));
-
-function lazyRoute(node: ReactNode) {
-  return <Suspense fallback={<RouteFallback />}>{node}</Suspense>;
-}
 
 export const router = createBrowserRouter([
   {
@@ -34,7 +19,7 @@ export const router = createBrowserRouter([
     children: [
       {
         index: true,
-        element: lazyRoute(<DashboardPage />),
+        element: <LazyRoute loader={() => import("@/modules/dashboard")} />,
       },
       {
         path: "pos",
@@ -42,50 +27,50 @@ export const router = createBrowserRouter([
       },
       {
         path: "items",
-        element: lazyRoute(<ItemsPage />),
+        element: <LazyRoute loader={() => import("@/modules/items")} />,
       },
       {
         path: "sales",
-        element: lazyRoute(<SalesPage />),
+        element: <LazyRoute loader={() => import("@/modules/sales")} />,
       },
       {
         path: "purchases",
-        element: lazyRoute(
+        element: (
           <FeatureRoute feature="purchases">
-            <PurchasesPage />
-          </FeatureRoute>,
+            <LazyRoute loader={() => import("@/modules/purchases")} />
+          </FeatureRoute>
         ),
       },
       {
         path: "customers",
-        element: lazyRoute(<CustomersPage />),
+        element: <LazyRoute loader={() => import("@/modules/customers")} />,
       },
       {
         path: "suppliers",
-        element: lazyRoute(<SuppliersPage />),
+        element: <LazyRoute loader={() => import("@/modules/suppliers")} />,
       },
       {
         path: "finance",
-        element: lazyRoute(
+        element: (
           <FeatureRoute feature="finance">
-            <FinancePage />
-          </FeatureRoute>,
+            <LazyRoute loader={() => import("@/modules/finance")} />
+          </FeatureRoute>
         ),
       },
       {
         path: "reports",
-        element: lazyRoute(
+        element: (
           <FeatureRoute feature="reports">
-            <ReportsPage />
-          </FeatureRoute>,
+            <LazyRoute loader={() => import("@/modules/reports")} />
+          </FeatureRoute>
         ),
       },
       {
         path: "settings",
-        element: lazyRoute(
+        element: (
           <FeatureRoute feature="settings">
-            <SettingsPage />
-          </FeatureRoute>,
+            <LazyRoute loader={() => import("@/modules/settings")} />
+          </FeatureRoute>
         ),
       },
     ],
