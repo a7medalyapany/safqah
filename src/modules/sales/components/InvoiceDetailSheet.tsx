@@ -62,6 +62,8 @@ export function InvoiceDetailSheet({
         <tr>
           <td style="padding:6px 8px;border-bottom:1px solid #ddd;text-align:right">${item.itemNameAr}</td>
           <td style="padding:6px 8px;border-bottom:1px solid #ddd;text-align:center">${item.qty}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #ddd;text-align:center">${formatEGP(item.unitPriceMillieme)}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #ddd;text-align:center">${formatEGP(item.discountMillieme)}</td>
           <td style="padding:6px 8px;border-bottom:1px solid #ddd;text-align:left">${formatEGP(item.totalMillieme)}</td>
         </tr>`,
         )
@@ -95,6 +97,8 @@ export function InvoiceDetailSheet({
               <thead><tr>
                 <th style="text-align:right">الصنف</th>
                 <th style="text-align:center">الكمية</th>
+                <th style="text-align:center">السعر</th>
+                <th style="text-align:center">الخصم</th>
                 <th style="text-align:left">الإجمالي</th>
               </tr></thead>
               <tbody>${itemsHtml}</tbody>
