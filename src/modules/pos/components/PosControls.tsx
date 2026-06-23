@@ -40,8 +40,18 @@ export function PaymentTab({
   );
 }
 
-export function TableHead({ children }: { children: ReactNode }) {
-  return <th className="px-3 py-3 text-right font-medium">{children}</th>;
+export function TableHead({
+  children,
+  className,
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <th className={cn("px-3 py-3 text-right font-medium", className)}>
+      {children}
+    </th>
+  );
 }
 
 export function TableCell({

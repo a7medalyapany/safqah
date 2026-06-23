@@ -7,7 +7,7 @@ pub fn no_window_command(program: &str) -> std::process::Command {
     command
 }
 
-#[cfg(not(target_os = "windows"))]
-pub fn no_window_command(program: &str) -> std::process::Command {
-    std::process::Command::new(program)
-}
+// #[cfg(not(target_os = "windows"))]
+// pub fn no_window_command(program: &str) -> std::process::Command {
+//     std::process::Command::new(program)
+// }

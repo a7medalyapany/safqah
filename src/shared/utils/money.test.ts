@@ -27,23 +27,23 @@ describe("money", () => {
     expect(toMillieme("99999.99")).toBe(99999990);
   });
 
-  it('formatEGP(10500) === "١٠٫٥٠ ج.م"', () => {
-    expect(formatEGP(10500)).toBe("١٠٫٥٠ ج.م");
+  it('formatEGP(10500) === "١٠٫٥٠"', () => {
+    expect(formatEGP(10500)).toBe("١٠٫٥٠");
   });
 
-  it('formatEGP(0) === "٠٫٠٠ ج.م"', () => {
-    expect(formatEGP(0)).toBe("٠٫٠٠ ج.م");
+  it('formatEGP(0) === "٠٫٠٠"', () => {
+    expect(formatEGP(0)).toBe("٠٫٠٠");
   });
 
-  it('formatEGP(10000) === "١٠٫٠٠ ج.م"', () => {
-    expect(formatEGP(10000)).toBe("١٠٫٠٠ ج.م");
+  it('formatEGP(10000) === "١٠٫٠٠"', () => {
+    expect(formatEGP(10000)).toBe("١٠٫٠٠");
   });
 
-  it('formatEGP(1) === "٠٫٠٠ ج.م"', () => {
-    expect(formatEGP(1)).toBe("٠٫٠٠ ج.م");
+  it('formatEGP(1) === "٠٫٠٠"', () => {
+    expect(formatEGP(1)).toBe("٠٫٠٠");
   });
 
-  it('formatEGP(999990) === "٩٩٩٫٩٩ ج.م"', () => {
-    expect(formatEGP(999990)).toBe("٩٩٩٫٩٩ ج.م");
+  it('formatEGP(999990) === "٩٩٩٫٩٩"', () => {
+    expect(formatEGP(999990)).toBe("٩٩٩٫٩٩");
   });
 });
