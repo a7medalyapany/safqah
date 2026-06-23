@@ -201,6 +201,9 @@ export function BarChartBox({
   );
 }
 
+const truncateLabel = (value: string, maxLength = 18) =>
+  value.length > maxLength ? `${value.slice(0, maxLength - 1)}…` : value;
+
 export function HorizontalBarChartBox({ data }: { data: TopItemRow[] }) {
   return (
     <div dir="ltr" style={{ direction: "ltr" }} className="h-full">
@@ -212,7 +215,32 @@ export function HorizontalBarChartBox({ data }: { data: TopItemRow[] }) {
         >
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis type="number" />
-          <YAxis type="category" dataKey="name_ar" width={120} />
+          <YAxis
+            type="category"
+            dataKey="name_ar"
+            width={120}
+            tickLine={false}
+            axisLine={false}
+            tick={({ x, y, payload }) => {
+              const label = String(payload.value ?? "");
+
+              return (
+                <g transform={`translate(${x},${y})`}>
+                  <title>{label}</title>
+                  <text
+                    x={0}
+                    y={0}
+                    dy={4}
+                    textAnchor="end"
+                    fill="currentColor"
+                    className="text-muted-foreground"
+                  >
+                    {truncateLabel(label)}
+                  </text>
+                </g>
+              );
+            }}
+          />
           <Tooltip />
           <Bar dataKey="total_qty_sold" fill="#2563eb" radius={[0, 8, 8, 0]} />
         </BarChart>
