@@ -342,21 +342,49 @@ fn validate_return_payload(payload: &CreateReturnPayload) -> Result<String, AppE
     Ok(refund_method)
 }
 
+/// Resolves the invoice status, the amount recorded as paid, and how the
+/// customer's balance should change.
+///
+/// Returns `(status, paid_millieme, balance_delta)` where a positive
+/// `balance_delta` means the customer now owes us more (مديونية) and a negative
+/// one means we owe the customer / they gained store credit (دائن). When no
+/// customer is attached, `balance_delta` is always 0 (cash overpayment is
+/// change handed back, not credit).
 fn sale_status_and_paid(
     payment_method: &str,
     requested_paid: i64,
     total: i64,
-) -> (&'static str, i64) {
-    if payment_method == "deferred" {
-        return ("deferred", 0);
-    }
-
-    if requested_paid >= total {
-        ("paid", requested_paid)
-    } else if requested_paid > 0 {
-        ("partial", requested_paid)
-    } else {
-        ("deferred", 0)
+    customer_present: bool,
+) -> (&'static str, i64, i64) {
+    match payment_method {
+        // Cash always covers the full total (enforced in the UI). Any overpayment
+        // is credited to the customer's balance when one is selected, otherwise
+        // it is change returned from the drawer.
+        "cash" => {
+            let excess = (requested_paid - total).max(0);
+            let balance_delta = if customer_present { -excess } else { 0 };
+            ("paid", total, balance_delta)
+        }
+        // Deferred honours the "paid now" amount: the rest is recorded against the
+        // customer's balance, and overpayment becomes store credit (negative delta).
+        "deferred" => {
+            let paid_millieme = requested_paid.clamp(0, total);
+            let balance_delta = if customer_present {
+                total - requested_paid
+            } else {
+                0
+            };
+            let status = if requested_paid >= total {
+                "paid"
+            } else if requested_paid > 0 {
+                "partial"
+            } else {
+                "deferred"
+            };
+            (status, paid_millieme, balance_delta)
+        }
+        // Card / split must equal the total (enforced in the UI).
+        _ => ("paid", total, 0),
     }
 }
 
@@ -460,8 +488,12 @@ async fn create_sale_invoice_impl_tx(
     }
 
     let payment_method = payload.payment_method.trim().to_owned();
-    let (status, paid_millieme) =
-        sale_status_and_paid(&payment_method, payload.paid_millieme, total_millieme);
+    let (status, paid_millieme, balance_delta) = sale_status_and_paid(
+        &payment_method,
+        payload.paid_millieme,
+        total_millieme,
+        payload.customer_id.is_some(),
+    );
     let notes = normalize_optional_string(payload.notes);
 
     let result = sqlx::query(
@@ -564,10 +596,9 @@ async fn create_sale_invoice_impl_tx(
         .await?;
     }
 
-    if payload.customer_id.is_some() && matches!(status, "deferred" | "partial") {
-        let remaining_millieme = total_millieme - paid_millieme;
+    if payload.customer_id.is_some() && balance_delta != 0 {
         sqlx::query("UPDATE customers SET balance_millieme = balance_millieme + ? WHERE id = ?")
-            .bind(remaining_millieme)
+            .bind(balance_delta)
             .bind(payload.customer_id)
             .execute(&mut *tx)
             .await?;
@@ -1090,7 +1121,7 @@ mod tests {
         );
         request.customer_id = Some(customer_id);
         request.payment_method = "deferred".to_owned();
-        request.paid_millieme = 20000;
+        request.paid_millieme = 0;
 
         let invoice = create_sale_invoice_impl(&pool, request).await?;
 
@@ -1103,6 +1134,108 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
         assert_eq!(balance, 23000);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_sale_invoice_deferred_partial_payment_records_paid_and_remaining(
+    ) -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_id = insert_item(&pool, "445", 5, 10000).await?;
+        let customer_id = insert_customer(&pool, 3000).await?;
+
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 2,
+                unit_price_millieme: 10000,
+                discount_millieme: 0,
+            }],
+        );
+        request.customer_id = Some(customer_id);
+        request.payment_method = "deferred".to_owned();
+        request.paid_millieme = 12000; // total is 20000
+
+        let invoice = create_sale_invoice_impl(&pool, request).await?;
+
+        assert_eq!(invoice.status, "partial");
+        assert_eq!(invoice.paid_millieme, 12000);
+
+        let (balance,): (i64,) =
+            sqlx::query_as("SELECT balance_millieme FROM customers WHERE id = ?")
+                .bind(customer_id)
+                .fetch_one(&pool)
+                .await?;
+        // 3000 opening + (20000 - 12000) remaining owed
+        assert_eq!(balance, 11000);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_sale_invoice_cash_overpayment_credits_customer_balance(
+    ) -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_id = insert_item(&pool, "446", 5, 10000).await?;
+        let customer_id = insert_customer(&pool, 0).await?;
+
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 2,
+                unit_price_millieme: 10000,
+                discount_millieme: 0,
+            }],
+        );
+        request.customer_id = Some(customer_id);
+        request.payment_method = "cash".to_owned();
+        request.paid_millieme = 25000; // total is 20000 -> 5000 excess
+
+        let invoice = create_sale_invoice_impl(&pool, request).await?;
+
+        assert_eq!(invoice.status, "paid");
+        // The invoice records the total as paid, not the inflated tendered amount.
+        assert_eq!(invoice.paid_millieme, 20000);
+
+        let (balance,): (i64,) =
+            sqlx::query_as("SELECT balance_millieme FROM customers WHERE id = ?")
+                .bind(customer_id)
+                .fetch_one(&pool)
+                .await?;
+        // Excess becomes store credit (negative balance = we owe the customer).
+        assert_eq!(balance, -5000);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_sale_invoice_cash_overpayment_without_customer_is_change(
+    ) -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_id = insert_item(&pool, "447", 5, 10000).await?;
+
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 2,
+                unit_price_millieme: 10000,
+                discount_millieme: 0,
+            }],
+        );
+        request.payment_method = "cash".to_owned();
+        request.paid_millieme = 25000; // total is 20000
+
+        let invoice = create_sale_invoice_impl(&pool, request).await?;
+
+        assert_eq!(invoice.status, "paid");
+        assert_eq!(invoice.paid_millieme, 20000);
 
         Ok(())
     }
