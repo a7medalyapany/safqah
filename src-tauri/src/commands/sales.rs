@@ -37,14 +37,24 @@ struct ReturnableInvoiceItem {
 }
 
 /// Refund owed for returning `returned_qty` units of an invoice line, based on
-/// the discounted line total so the customer is refunded what they actually
-/// paid (not the pre-discount price). Prorated for partial returns; a full
-/// return refunds exactly the line total.
-fn return_line_refund_millieme(line: &ReturnableInvoiceItem, returned_qty: i64) -> i64 {
+/// what the customer actually paid. The line total is already net of the
+/// per-line discount; scaling by `invoice_total / invoice_subtotal` prorates
+/// the invoice-level (global) discount and tax too. Prorated for partial
+/// returns; a full return of the whole invoice sums back to the invoice total.
+fn return_line_refund_millieme(
+    line: &ReturnableInvoiceItem,
+    returned_qty: i64,
+    invoice_subtotal_millieme: i64,
+    invoice_total_millieme: i64,
+) -> i64 {
     if line.qty <= 0 {
         return 0;
     }
-    (line.total_millieme * returned_qty + line.qty / 2) / line.qty
+    let numerator = (line.total_millieme as i128)
+        * (returned_qty as i128)
+        * (invoice_total_millieme as i128);
+    let denominator = (line.qty as i128) * (invoice_subtotal_millieme.max(1) as i128);
+    ((numerator + denominator / 2) / denominator) as i64
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -647,13 +657,15 @@ async fn create_return_impl(
 
     ensure_open_session(&mut tx, payload.session_id).await?;
 
-    let invoice: Option<(Option<i64>, String)> =
-        sqlx::query_as("SELECT customer_id, status FROM invoices WHERE id = ?")
-            .bind(payload.original_invoice_id)
-            .fetch_optional(&mut *tx)
-            .await?;
+    let invoice: Option<(Option<i64>, String, i64, i64)> = sqlx::query_as(
+        "SELECT customer_id, status, subtotal_millieme, total_millieme FROM invoices WHERE id = ?",
+    )
+    .bind(payload.original_invoice_id)
+    .fetch_optional(&mut *tx)
+    .await?;
 
-    let (customer_id, invoice_status) = invoice.ok_or_else(|| AppError::not_found("الفاتورة"))?;
+    let (customer_id, invoice_status, invoice_subtotal_millieme, invoice_total_millieme) =
+        invoice.ok_or_else(|| AppError::not_found("الفاتورة"))?;
     if invoice_status == "cancelled" {
         return Err(AppError::validation("لا يمكن تسجيل مرتجع لفاتورة ملغية"));
     }
@@ -720,7 +732,14 @@ async fn create_return_impl(
         .items
         .iter()
         .zip(validated_items.iter())
-        .map(|(item, original)| return_line_refund_millieme(original, item.qty))
+        .map(|(item, original)| {
+            return_line_refund_millieme(
+                original,
+                item.qty,
+                invoice_subtotal_millieme,
+                invoice_total_millieme,
+            )
+        })
         .sum();
     let notes = normalize_optional_string(payload.notes);
 
@@ -750,10 +769,21 @@ async fn create_return_impl(
     let return_id = result.last_insert_rowid();
 
     for (item, original) in payload.items.iter().zip(validated_items.iter()) {
-        let line_total = return_line_refund_millieme(original, item.qty);
-        // Effective per-unit price after the line discount, for display consistency.
+        let line_total = return_line_refund_millieme(
+            original,
+            item.qty,
+            invoice_subtotal_millieme,
+            invoice_total_millieme,
+        );
+        // Effective per-unit refund price (line discount + prorated global
+        // discount/tax), for display consistency: full-line refund / qty.
         let effective_unit_price = if original.qty > 0 {
-            (original.total_millieme + original.qty / 2) / original.qty
+            return_line_refund_millieme(
+                original,
+                original.qty,
+                invoice_subtotal_millieme,
+                invoice_total_millieme,
+            ) / original.qty
         } else {
             original.unit_price_millieme
         };
@@ -1412,6 +1442,51 @@ mod tests {
         assert_eq!(return_result.total_millieme, 18000);
         assert_eq!(return_result.items[0].total_millieme, 18000);
         assert_eq!(return_result.items[0].unit_price_millieme, 9000);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_return_refunds_after_invoice_level_discount() -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_id = insert_item(&pool, "669", 10, 10000).await?;
+
+        // 1 unit @ 18000, no line discount, but a 3000 invoice-level discount:
+        // subtotal 18000 - 3000 = total 15000.
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 1,
+                unit_price_millieme: 18000,
+                discount_millieme: 0,
+            }],
+        );
+        request.global_discount_millieme = 3000;
+        request.paid_millieme = 15000;
+        let invoice = create_sale_invoice_impl(&pool, request).await?;
+        assert_eq!(invoice.total_millieme, 15000);
+
+        let return_result = create_return_impl(
+            &pool,
+            CreateReturnPayload {
+                original_invoice_id: invoice.id,
+                session_id,
+                items: vec![ReturnItemPayload {
+                    invoice_item_id: invoice.items[0].id,
+                    item_id,
+                    qty: 1,
+                }],
+                refund_method: "cash".to_owned(),
+                notes: None,
+            },
+        )
+        .await?;
+
+        // Refund must reflect what was paid after the global discount: 15000, not 18000.
+        assert_eq!(return_result.total_millieme, 15000);
+        assert_eq!(return_result.items[0].total_millieme, 15000);
 
         Ok(())
     }
