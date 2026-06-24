@@ -83,7 +83,7 @@ export function PaymentPanel({
                 سيُضاف للرصيد لصالح العميل: {formatEGP(changeMillieme)}
               </p>
               {projectedCustomerBalanceMillieme > 0 ? (
-                <p className="text-sm font-medium text-amber-700">
+                <p className="text-sm font-medium text-red-700">
                   الرصيد بعد البيع: مديونية{" "}
                   {formatEGP(projectedCustomerBalanceMillieme)}
                 </p>
@@ -153,7 +153,7 @@ export function PaymentPanel({
           </p>
           {projectedCustomerBalanceMillieme !== null ? (
             projectedCustomerBalanceMillieme > 0 ? (
-              <p className="text-sm font-medium text-amber-700">
+              <p className="text-sm font-medium text-red-700">
                 الرصيد بعد البيع: مديونية{" "}
                 {formatEGP(projectedCustomerBalanceMillieme)}
               </p>
