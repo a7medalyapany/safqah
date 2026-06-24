@@ -78,6 +78,10 @@ export default function DashboardPage() {
       };
     },
     staleTime: STALE_TIME,
+    // Pull fresh KPIs whenever the dashboard is opened or the app is refocused,
+    // so sales/returns reflect without an app reload.
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 
   const dashboard = dashboardQuery.data;

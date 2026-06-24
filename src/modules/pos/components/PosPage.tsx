@@ -461,6 +461,7 @@ export default function PosPage() {
           queryClient.invalidateQueries({ queryKey: ["pos-items"] }),
           queryClient.invalidateQueries({ queryKey: ["items"] }),
           queryClient.invalidateQueries({ queryKey: ["customers"] }),
+          queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
         ]);
       },
       onError: (error) => {
