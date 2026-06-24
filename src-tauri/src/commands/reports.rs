@@ -166,6 +166,26 @@ async fn report_daily_sales_impl(
     .fetch_one(pool)
     .await?;
 
+    // Returns processed today reduce the day's net revenue. Cash refunds also
+    // reduce the cash figure; credit refunds reduce the customer's balance
+    // (handled at return time) rather than cash, so they only affect the total.
+    let (returns_total_millieme, returns_cash_millieme): (i64, i64) = sqlx::query_as(
+        r#"
+        SELECT
+          COALESCE(SUM(total_millieme), 0),
+          COALESCE(SUM(CASE WHEN refund_method = 'cash' THEN total_millieme ELSE 0 END), 0)
+        FROM returns
+        WHERE DATE(created_at) = ?
+          AND status != 'cancelled'
+        "#,
+    )
+    .bind(&report_date)
+    .fetch_one(pool)
+    .await?;
+
+    let total_millieme = totals.total_millieme - returns_total_millieme;
+    let cash_millieme = totals.cash_millieme - returns_cash_millieme;
+
     let avg_invoice_millieme = if totals.invoice_count > 0 {
         totals.total_millieme / totals.invoice_count
     } else {
@@ -175,8 +195,8 @@ async fn report_daily_sales_impl(
     Ok(DailySalesReport {
         date: report_date,
         invoice_count: totals.invoice_count,
-        total_millieme: totals.total_millieme,
-        cash_millieme: totals.cash_millieme,
+        total_millieme,
+        cash_millieme,
         card_millieme: totals.card_millieme,
         deferred_millieme: totals.deferred_millieme,
         discount_millieme: totals.discount_millieme,

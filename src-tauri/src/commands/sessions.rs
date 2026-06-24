@@ -141,14 +141,34 @@ async fn get_session_sales_total_millieme_impl(
         return Ok(0);
     }
 
-    Ok(
+    let invoices_total = sqlx::query_scalar::<_, i64>(
+        "SELECT COALESCE(SUM(total_millieme), 0) FROM invoices WHERE session_id = ? AND status != 'cancelled'",
+    )
+    .bind(session_id)
+    .fetch_one(pool)
+    .await?;
+
+    // Subtract returns booked against this session so the shift total reflects
+    // net sales. The returns table may not exist on partially-migrated DBs.
+    let returns_table_exists = sqlx::query_scalar::<_, String>(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'returns'",
+    )
+    .fetch_optional(pool)
+    .await?
+    .is_some();
+
+    let returns_total = if returns_table_exists {
         sqlx::query_scalar::<_, i64>(
-            "SELECT COALESCE(SUM(total_millieme), 0) FROM invoices WHERE session_id = ?",
+            "SELECT COALESCE(SUM(total_millieme), 0) FROM returns WHERE session_id = ? AND status != 'cancelled'",
         )
         .bind(session_id)
         .fetch_one(pool)
-        .await?,
-    )
+        .await?
+    } else {
+        0
+    };
+
+    Ok(invoices_total - returns_total)
 }
 
 #[tauri::command]
