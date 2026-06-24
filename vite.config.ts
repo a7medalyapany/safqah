@@ -58,5 +58,35 @@ export default defineConfig(async () => ({
     target: platform === "windows" ? "chrome105" : "safari13",
     minify: !isDebug,
     sourcemap: isDebug,
+    rollupOptions: {
+      output: {
+        // Keep recharts and its ENTIRE CommonJS dependency closure in a single
+        // chunk. recharts (>= v3) is imported by two separately code-split,
+        // lazily-loaded routes (the dashboard and the reports page). Without
+        // this, the bundler splits recharts' bundled CommonJS deps (es-toolkit's
+        // `get`/`property`/`isEqual`/…, victory-vendor/d3) across chunks and
+        // emits a self-shadowing interop wrapper inside the reports chunk:
+        //
+        //   var require_get = require_get();   // local shadows the import →
+        //                                      // hoisted-undefined → throws
+        //
+        // That `__commonJSMin` factory is lazy, so it only blows up the first
+        // time recharts renders a chart on the reports page — "require_get is
+        // not a function", crashing the whole reports chunk. It never appears
+        // under `tauri dev` (no code-splitting) — only in the shipped .msi.
+        // Consolidating the cluster into one chunk lets the interop wrappers
+        // initialize in-order within a single module, so there is no dangling
+        // cross-chunk binding. Verified by scripts/verify-reports-bundle.mjs.
+        manualChunks(id) {
+          if (
+            /[\\/]node_modules[\\/](recharts|es-toolkit|victory-vendor|internmap|d3-[a-z]+|decimal\.js-light|@reduxjs|react-redux|reselect|immer|use-sync-external-store|eventemitter3|tiny-invariant)[\\/]/.test(
+              id,
+            )
+          ) {
+            return "recharts";
+          }
+        },
+      },
+    },
   },
 }));
