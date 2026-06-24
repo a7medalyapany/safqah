@@ -1,4 +1,4 @@
-use std::{fs, io, path::PathBuf};
+use std::{fs, io, path::PathBuf, time::Duration};
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 
@@ -60,6 +60,7 @@ async fn initialize_pool(path: &PathBuf) -> Result<DbPool, sqlx::Error> {
         .journal_mode(SqliteJournalMode::Wal)
         .foreign_keys(true)
         .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(Duration::from_secs(5))
         .pragma("cache_size", "-64000")
         .pragma("temp_store", "MEMORY");
 
