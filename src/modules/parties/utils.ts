@@ -4,18 +4,6 @@ import { toMillieme } from "@/shared/utils/money";
 
 export { parseAppError };
 
-export function getBalanceTone(balance: number) {
-  if (balance > 0) {
-    return "text-emerald-600";
-  }
-
-  if (balance === 0) {
-    return "text-muted-foreground";
-  }
-
-  return "text-foreground";
-}
-
 export function toPartyFormValues(
   kind: PartyKind,
   party?: Party | null,

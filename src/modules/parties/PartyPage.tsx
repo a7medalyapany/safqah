@@ -18,9 +18,8 @@ import { CustomerLedgerSheet } from "@/modules/parties/CustomerLedgerSheet";
 import { DeletePartyDialog } from "@/modules/parties/DeletePartyDialog";
 import { PartyFormDialog } from "@/modules/parties/PartyFormDialog";
 import type { Party, PartyKind } from "@/modules/parties/types";
-import { getBalanceTone, getPartyMeta } from "@/modules/parties/utils";
-import { cn } from "@/lib/utils";
-import { formatEGP } from "@/shared/utils/money";
+import { getPartyMeta } from "@/modules/parties/utils";
+import { BalanceBadge } from "@/shared/components/BalanceBadge";
 
 export function PartyPage({ kind }: { kind: PartyKind }) {
   const [search, setSearch] = useState("");
@@ -117,14 +116,10 @@ export function PartyPage({ kind }: { kind: PartyKind }) {
                           </TableCell>
                           <TableCell>{party.phone || "—"}</TableCell>
                           <TableCell>
-                            <span
-                              className={cn(
-                                "font-medium",
-                                getBalanceTone(party.balance_millieme),
-                              )}
-                            >
-                              {formatEGP(party.balance_millieme)}
-                            </span>
+                            <BalanceBadge
+                              balanceMillieme={party.balance_millieme}
+                              kind={kind}
+                            />
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-row-reverse justify-start gap-2">
