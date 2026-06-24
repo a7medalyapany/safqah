@@ -280,9 +280,20 @@ export default function PosPage() {
     paymentMethod === "deferred"
       ? Math.max(totalMillieme - deferredPaidNowMillieme, 0)
       : 0;
+  // How the selected customer's balance changes after this sale.
+  //  - deferred: total - paidNow (positive = owes us, negative = store credit)
+  //  - cash overpayment: the excess becomes store credit (negative)
+  let customerBalanceDeltaMillieme: number | null = null;
+  if (selectedCustomer) {
+    if (paymentMethod === "deferred") {
+      customerBalanceDeltaMillieme = totalMillieme - deferredPaidNowMillieme;
+    } else if (paymentMethod === "cash" && paidCashMillieme > totalMillieme) {
+      customerBalanceDeltaMillieme = totalMillieme - paidCashMillieme;
+    }
+  }
   const projectedCustomerBalanceMillieme =
-    paymentMethod === "deferred" && selectedCustomer
-      ? selectedCustomerBalanceMillieme + deferredRemainingMillieme
+    customerBalanceDeltaMillieme !== null
+      ? selectedCustomerBalanceMillieme + customerBalanceDeltaMillieme
       : null;
 
   const isCartEmpty = cartItems.length === 0;

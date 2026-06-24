@@ -77,9 +77,32 @@ export function PaymentPanel({
               }
             }}
           />
-          <p className="text-sm text-muted-foreground">
-            الباقي: {formatEGP(Math.max(changeMillieme, 0))}
-          </p>
+          {projectedCustomerBalanceMillieme !== null && changeMillieme > 0 ? (
+            <>
+              <p className="text-sm font-medium text-emerald-700">
+                سيُضاف للرصيد لصالح العميل: {formatEGP(changeMillieme)}
+              </p>
+              {projectedCustomerBalanceMillieme > 0 ? (
+                <p className="text-sm font-medium text-amber-700">
+                  الرصيد بعد البيع: مديونية{" "}
+                  {formatEGP(projectedCustomerBalanceMillieme)}
+                </p>
+              ) : projectedCustomerBalanceMillieme < 0 ? (
+                <p className="text-sm font-medium text-emerald-700">
+                  الرصيد بعد البيع: دائن للعميل{" "}
+                  {formatEGP(Math.abs(projectedCustomerBalanceMillieme))}
+                </p>
+              ) : (
+                <p className="text-sm font-medium text-emerald-700">
+                  الرصيد بعد البيع: ٠٫٠٠
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              الباقي: {formatEGP(Math.max(changeMillieme, 0))}
+            </p>
+          )}
         </div>
       ) : null}
 
