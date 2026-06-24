@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::sync::Mutex;
+
 use rand::{rngs::OsRng as RandomOsRng, RngCore};
 use tauri::State;
 
@@ -9,6 +12,13 @@ use crate::{
     errors::AppError,
     models::user::{CreateUserPayload, UpdateUserPayload, User, UserWithPassword},
 };
+
+/// In-memory map of active session tokens to their user id.
+///
+/// Stored as Tauri-managed state, so it survives a webview reload (the Rust
+/// process stays alive) but is intentionally cleared on a full app restart.
+#[derive(Default)]
+pub struct SessionStore(Mutex<HashMap<String, i64>>);
 
 #[derive(Debug, serde::Serialize)]
 pub struct AuthResponse {
@@ -98,6 +108,7 @@ pub fn verify_password(password: &str, hash: &str) -> bool {
 #[tauri::command]
 pub async fn login(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
     username: String,
     password: String,
 ) -> Result<AuthResponse, AppError> {
@@ -116,20 +127,67 @@ pub async fn login(
         return Err(invalid_credentials_error());
     }
 
-    Ok(AuthResponse {
-        user: user.into(),
-        token: generate_session_token(),
-    })
+    let user: User = user.into();
+    let token = generate_session_token();
+    sessions
+        .0
+        .lock()
+        .expect("session store mutex poisoned")
+        .insert(token.clone(), user.id);
+
+    Ok(AuthResponse { user, token })
 }
 
 #[tauri::command]
-pub async fn logout() -> Result<bool, AppError> {
+pub async fn logout(sessions: State<'_, SessionStore>, token: String) -> Result<bool, AppError> {
+    sessions
+        .0
+        .lock()
+        .expect("session store mutex poisoned")
+        .remove(&token);
     Ok(true)
 }
 
 #[tauri::command]
-pub async fn get_current_user(_pool: State<'_, DbPool>) -> Result<Option<User>, AppError> {
-    Ok(None)
+pub async fn get_current_user(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: String,
+) -> Result<Option<User>, AppError> {
+    let user_id = sessions
+        .0
+        .lock()
+        .expect("session store mutex poisoned")
+        .get(&token)
+        .copied();
+
+    let Some(user_id) = user_id else {
+        return Ok(None);
+    };
+
+    match get_user_record_by_id(&pool, user_id).await {
+        Ok(user) => {
+            // Only an active user keeps a valid session.
+            if user.is_active == 1 {
+                Ok(Some(user.into()))
+            } else {
+                sessions
+                    .0
+                    .lock()
+                    .expect("session store mutex poisoned")
+                    .remove(&token);
+                Ok(None)
+            }
+        }
+        Err(_) => {
+            sessions
+                .0
+                .lock()
+                .expect("session store mutex poisoned")
+                .remove(&token);
+            Ok(None)
+        }
+    }
 }
 
 #[tauri::command]
