@@ -10,6 +10,7 @@ use tauri::{Manager, State};
 use commands::{
     auth::{
         create_user, deactivate_user, get_current_user, list_users, login, logout, update_user,
+        SessionStore,
     },
     customers::{create_customer, delete_customer, get_customer, list_customers, update_customer},
     finance::{
@@ -99,6 +100,7 @@ pub fn run() {
             let backup_service = BackupService::new();
             app.manage(pool);
             app.manage(backup_service.clone());
+            app.manage(SessionStore::default());
             let backup_worker = backup_service.clone();
 
             tauri::async_runtime::spawn(async move {
