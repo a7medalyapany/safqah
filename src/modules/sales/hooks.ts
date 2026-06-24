@@ -74,6 +74,7 @@ export function useCreateReturnMutation(invoiceId: number) {
         queryClient.invalidateQueries({ queryKey: salesKeys.detail(invoiceId) }),
         queryClient.invalidateQueries({ queryKey: salesKeys.stats }),
         queryClient.invalidateQueries({ queryKey: ["items"] }),
+        queryClient.invalidateQueries({ queryKey: ["dashboard"] }),
       ]);
     },
   });
