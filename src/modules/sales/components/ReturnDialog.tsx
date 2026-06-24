@@ -18,7 +18,10 @@ import type {
   InvoiceItemDetail,
   RefundMethod,
 } from "@/modules/sales/types";
-import { getReturnableQty } from "@/modules/sales/utils";
+import {
+  getReturnableQty,
+  getReturnLineRefundMillieme,
+} from "@/modules/sales/utils";
 import { parseAppError } from "@/modules/items/utils";
 import { FilterField } from "@/shared/components/FilterField";
 import { TableCell, TableHeadCell } from "@/shared/components/DataTable";
@@ -64,7 +67,7 @@ export function ReturnDialog({
   const selectedItems = returnableItems.filter((item) => selected[item.id]);
   const selectedTotal = selectedItems.reduce(
     (total, item) =>
-      total + item.unit_price_millieme * (quantities[item.id] ?? 0),
+      total + getReturnLineRefundMillieme(item, quantities[item.id] ?? 0),
     0,
   );
 
@@ -199,7 +202,10 @@ export function ReturnDialog({
                       <TableCell>{quantities[item.id] ?? 1}</TableCell>
                       <TableCell>
                         {formatEGP(
-                          item.unit_price_millieme * (quantities[item.id] ?? 1),
+                          getReturnLineRefundMillieme(
+                            item,
+                            quantities[item.id] ?? 1,
+                          ),
                         )}
                       </TableCell>
                     </tr>

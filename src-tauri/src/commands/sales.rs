@@ -32,6 +32,19 @@ struct ReturnableInvoiceItem {
     item_id: i64,
     qty: i64,
     unit_price_millieme: i64,
+    /// Line total after the per-line discount (unit_price * qty - discount).
+    total_millieme: i64,
+}
+
+/// Refund owed for returning `returned_qty` units of an invoice line, based on
+/// the discounted line total so the customer is refunded what they actually
+/// paid (not the pre-discount price). Prorated for partial returns; a full
+/// return refunds exactly the line total.
+fn return_line_refund_millieme(line: &ReturnableInvoiceItem, returned_qty: i64) -> i64 {
+    if line.qty <= 0 {
+        return 0;
+    }
+    (line.total_millieme * returned_qty + line.qty / 2) / line.qty
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
@@ -655,7 +668,7 @@ async fn create_return_impl(
     for (invoice_item_id, requested_qty) in &requested_by_invoice_item {
         let original: ReturnableInvoiceItem = sqlx::query_as(
             r#"
-            SELECT id, item_id, qty, unit_price_millieme
+            SELECT id, item_id, qty, unit_price_millieme, total_millieme
             FROM invoice_items
             WHERE id = ? AND invoice_id = ?
             "#,
@@ -682,7 +695,7 @@ async fn create_return_impl(
     for item in &payload.items {
         let original: ReturnableInvoiceItem = sqlx::query_as(
             r#"
-            SELECT id, item_id, qty, unit_price_millieme
+            SELECT id, item_id, qty, unit_price_millieme, total_millieme
             FROM invoice_items
             WHERE id = ? AND item_id = ? AND invoice_id = ?
             "#,
@@ -707,7 +720,7 @@ async fn create_return_impl(
         .items
         .iter()
         .zip(validated_items.iter())
-        .map(|(item, original)| original.unit_price_millieme * item.qty)
+        .map(|(item, original)| return_line_refund_millieme(original, item.qty))
         .sum();
     let notes = normalize_optional_string(payload.notes);
 
@@ -737,7 +750,13 @@ async fn create_return_impl(
     let return_id = result.last_insert_rowid();
 
     for (item, original) in payload.items.iter().zip(validated_items.iter()) {
-        let line_total = original.unit_price_millieme * item.qty;
+        let line_total = return_line_refund_millieme(original, item.qty);
+        // Effective per-unit price after the line discount, for display consistency.
+        let effective_unit_price = if original.qty > 0 {
+            (original.total_millieme + original.qty / 2) / original.qty
+        } else {
+            original.unit_price_millieme
+        };
 
         sqlx::query(
             r#"
@@ -756,7 +775,7 @@ async fn create_return_impl(
         .bind(original.id)
         .bind(original.item_id)
         .bind(item.qty)
-        .bind(original.unit_price_millieme)
+        .bind(effective_unit_price)
         .bind(line_total)
         .execute(&mut *tx)
         .await?;
@@ -1350,6 +1369,49 @@ mod tests {
         .fetch_one(&pool)
         .await?;
         assert_eq!(movement, (2, "return".to_owned(), "return".to_owned()));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_return_refunds_discounted_price_prorated() -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_id = insert_item(&pool, "668", 10, 10000).await?;
+
+        // 4 units @ 10000 with a 4000 line discount -> line total 36000 (9000/unit).
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 4,
+                unit_price_millieme: 10000,
+                discount_millieme: 4000,
+            }],
+        );
+        request.paid_millieme = 36000;
+        let invoice = create_sale_invoice_impl(&pool, request).await?;
+
+        let return_result = create_return_impl(
+            &pool,
+            CreateReturnPayload {
+                original_invoice_id: invoice.id,
+                session_id,
+                items: vec![ReturnItemPayload {
+                    invoice_item_id: invoice.items[0].id,
+                    item_id,
+                    qty: 2,
+                }],
+                refund_method: "cash".to_owned(),
+                notes: None,
+            },
+        )
+        .await?;
+
+        // Discounted, prorated: 36000 * 2 / 4 = 18000 (NOT the pre-discount 20000).
+        assert_eq!(return_result.total_millieme, 18000);
+        assert_eq!(return_result.items[0].total_millieme, 18000);
+        assert_eq!(return_result.items[0].unit_price_millieme, 9000);
 
         Ok(())
     }
