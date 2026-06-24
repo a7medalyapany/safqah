@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "test": "vitest run",
     "preview": "vite preview",
+    "verify:bundle": "vite build && node scripts/verify-reports-bundle.mjs",
     "tauri": "tauri",
     "copy-icons": "cp -R src-tauri/icons public/icons || true",
     "postinstall": "npm run copy-icons"
@@ -44,7 +45,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",
-    "terser": "^5.48.0",
+    "playwright-core": "^1.61.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.14",
     "vitest": "^4.1.7"
