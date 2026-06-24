@@ -67,7 +67,13 @@ export function ReturnDialog({
   const selectedItems = returnableItems.filter((item) => selected[item.id]);
   const selectedTotal = selectedItems.reduce(
     (total, item) =>
-      total + getReturnLineRefundMillieme(item, quantities[item.id] ?? 0),
+      total +
+      getReturnLineRefundMillieme(
+        item,
+        quantities[item.id] ?? 0,
+        invoice.subtotal_millieme,
+        invoice.total_millieme,
+      ),
     0,
   );
 
@@ -205,6 +211,8 @@ export function ReturnDialog({
                           getReturnLineRefundMillieme(
                             item,
                             quantities[item.id] ?? 1,
+                            invoice.subtotal_millieme,
+                            invoice.total_millieme,
                           ),
                         )}
                       </TableCell>

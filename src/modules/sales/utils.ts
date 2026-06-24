@@ -55,16 +55,22 @@ export function getReturnableQty(
 
 /**
  * Refund owed for returning `returnedQty` units of an invoice line, based on
- * the discounted line total so the customer gets back what they actually paid
- * (not the pre-discount unit price). Prorated for partial returns; mirrors the
- * backend's return_line_refund_millieme.
+ * what the customer actually paid. The line total is already net of the
+ * per-line discount; scaling by `invoiceTotal / invoiceSubtotal` prorates the
+ * invoice-level (global) discount and tax too. Prorated for partial returns;
+ * mirrors the backend's return_line_refund_millieme.
  */
 export function getReturnLineRefundMillieme(
   item: Pick<InvoiceItemDetail, "qty" | "total_millieme">,
   returnedQty: number,
+  invoiceSubtotalMillieme: number,
+  invoiceTotalMillieme: number,
 ) {
   if (item.qty <= 0) {
     return 0;
   }
-  return Math.round((item.total_millieme * returnedQty) / item.qty);
+  const denominator = item.qty * Math.max(invoiceSubtotalMillieme, 1);
+  return Math.round(
+    (item.total_millieme * returnedQty * invoiceTotalMillieme) / denominator,
+  );
 }
