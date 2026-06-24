@@ -23,20 +23,19 @@ export function PriceUpdateDialog({
 
   const updatePricesMutation = useMutation({
     mutationFn: async () => {
-      await Promise.all(
-        suggestions.map((item) =>
-          invoke(
-            "update_item",
-            {
-              id: item.itemId,
-              payload: {
-                sell_price_millieme: item.suggestedSellPriceMillieme,
-              },
+      // Update sequentially to avoid concurrent SQLite write-lock contention.
+      for (const item of suggestions) {
+        await invoke(
+          "update_item",
+          {
+            id: item.itemId,
+            payload: {
+              sell_price_millieme: item.suggestedSellPriceMillieme,
             },
-            { toast: false },
-          ),
-        ),
-      );
+          },
+          { toast: false },
+        );
+      }
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ["items"] });
