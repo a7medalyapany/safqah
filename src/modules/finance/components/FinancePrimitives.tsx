@@ -1,5 +1,3 @@
-import type { ReactNode } from "react";
-
 import { Receipt } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
@@ -34,21 +32,8 @@ export function SummaryCard({
   );
 }
 
-export function TableHead({ children }: { children: ReactNode }) {
-  return <th className="px-4 py-3 text-right font-medium">{children}</th>;
-}
-
-export function TableCell({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <td className={cn("px-4 py-3 align-middle", className)}>{children}</td>
-  );
-}
+// Re-exported from the shared table primitives (single source of truth).
+export { TableCell, TableHeadCell as TableHead } from "@/shared/components/DataTable";
 
 export function LoadingRows({ cols }: { cols: number }) {
   return Array.from({ length: 5 }).map((_, index) => (

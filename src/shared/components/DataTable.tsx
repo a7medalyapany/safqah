@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
-export function TableHeadCell({ children }: { children: ReactNode }) {
+export function TableHeadCell({ children }: { children?: ReactNode }) {
   return <th className="px-4 py-3 text-right font-medium">{children}</th>;
 }
 
