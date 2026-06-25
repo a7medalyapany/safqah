@@ -33,11 +33,11 @@ export function CatalogPanel({
   onItemDoubleClick: (item: Item) => void;
 }) {
   return (
-    <Card className="flex min-h-[70vh] flex-1 flex-col lg:basis-[60%]">
+    <Card className="flex min-h-[70vh] flex-1 flex-col lg:h-full lg:min-h-0 lg:basis-[60%]">
       <CardHeader className="border-b pb-4">
         <CardTitle className="text-right text-2xl">نقطة البيع</CardTitle>
       </CardHeader>
-      <CardContent className="flex flex-1 flex-col gap-4 p-4">
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-4 p-4">
         <div className="space-y-3">
           <div className="relative">
             <Search className="absolute inset-e-4 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />

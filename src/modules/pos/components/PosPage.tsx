@@ -412,8 +412,8 @@ export default function PosPage() {
 
   return (
     <>
-      <div className="min-h-[calc(100vh-81px)] p-4 lg:p-6">
-        <div className="flex h-full flex-col gap-4 lg:flex-row-reverse">
+      <div className="min-h-[calc(100vh-81px)] p-4 lg:h-[calc(100vh-81px)] lg:overflow-hidden lg:p-6">
+        <div className="flex h-full min-h-0 flex-col gap-4 lg:flex-row-reverse">
           <CatalogPanel
             searchInputRef={searchInputRef}
             search={search}
@@ -427,8 +427,8 @@ export default function PosPage() {
             onItemDoubleClick={handleItemCardDoubleClick}
           />
 
-          <Card className="flex min-h-[70vh] flex-col lg:basis-[40%]">
-            <CardContent className="flex flex-1 flex-col gap-4 p-4">
+          <Card className="flex min-h-[70vh] flex-col lg:h-full lg:min-h-0 lg:basis-[40%]">
+            <CardContent className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
               <CartTable
                 items={cartItems}
                 onUpdateQty={updateQty}
