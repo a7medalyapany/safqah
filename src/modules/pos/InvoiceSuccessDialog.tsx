@@ -44,7 +44,7 @@ export function InvoiceSuccessDialog({
 }: InvoiceSuccessDialogProps) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md" showCloseButton={false}>
+      <DialogContent className="max-w-lg" showCloseButton={false}>
         <DialogHeader className="text-right">
           <DialogTitle>تم حفظ الفاتورة بنجاح ✓</DialogTitle>
           <DialogDescription>
