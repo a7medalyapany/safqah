@@ -83,7 +83,7 @@ export function PriceUpdateDialog({
           ))}
         </div>
 
-        <DialogFooter className="flex-row-reverse justify-start gap-2">
+        <DialogFooter className="flex-row-reverse justify-start gap-2 bg-transparent p-0 pt-2">
           <Button
             onClick={() => updatePricesMutation.mutate()}
             disabled={updatePricesMutation.isPending}
