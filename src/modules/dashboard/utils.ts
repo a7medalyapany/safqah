@@ -4,6 +4,10 @@ import type {
   PeriodSalesRow,
   SalesTrendPoint,
 } from "@/modules/dashboard/types";
+import { toIsoDate } from "@/shared/utils/date";
+
+// Re-exported from the shared date utilities (single source of truth).
+export { today } from "@/shared/utils/date";
 
 export const statusLabels: Record<InvoiceStatus, string> = {
   paid: "مدفوع",
@@ -55,14 +59,3 @@ export function lastDays(count: number): DayPoint[] {
   });
 }
 
-export function today() {
-  return toIsoDate(new Date());
-}
-
-function toIsoDate(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-
-  return `${year}-${month}-${day}`;
-}

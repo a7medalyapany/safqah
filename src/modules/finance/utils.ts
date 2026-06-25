@@ -1,5 +1,8 @@
 import type { DateFilter } from "@/modules/finance/types";
 
+// Re-exported from the shared date utilities (single source of truth).
+export { formatDate } from "@/shared/utils/date";
+
 export function getDateRange(filter: DateFilter): {
   dateFrom: string | null;
   dateTo: string | null;
@@ -38,18 +41,4 @@ export function relativeTime(days: number): string {
   if (days < 30) return `${Math.floor(days / 7)} أسبوع`;
   if (days < 365) return `${Math.floor(days / 30)} شهر`;
   return `${Math.floor(days / 365)} سنة`;
-}
-
-export function formatDate(value: string) {
-  const normalized = value.includes("T") ? value : value.replace(" ", "T");
-  const date = new Date(normalized);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("ar-EG", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
 }
