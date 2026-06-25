@@ -48,7 +48,12 @@ export function TableHead({
   className?: string;
 }) {
   return (
-    <th className={cn("px-3 py-3 text-right font-medium", className)}>
+    <th
+      className={cn(
+        "px-3 py-2.5 text-right text-xs font-semibold text-muted-foreground",
+        className,
+      )}
+    >
       {children}
     </th>
   );
@@ -61,7 +66,9 @@ export function TableCell({
   children: ReactNode;
   className?: string;
 }) {
-  return <td className={cn("px-3 py-3", className)}>{children}</td>;
+  return (
+    <td className={cn("px-3 py-2.5 align-middle", className)}>{children}</td>
+  );
 }
 
 export function LoadingItemGrid() {
