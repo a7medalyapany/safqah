@@ -2,6 +2,7 @@ use sqlx::{QueryBuilder, Sqlite};
 use tauri::State;
 
 use crate::{
+    commands::util::normalize_optional_string,
     db::DbPool,
     errors::AppError,
     models::import::CsvImportReport,
@@ -25,17 +26,6 @@ struct ItemCsvRow {
     supplier_id: Option<String>,
     supplier_name: Option<String>,
     image_path: Option<String>,
-}
-
-fn normalize_optional_string(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        let trimmed = value.trim().to_owned();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        }
-    })
 }
 
 async fn find_or_create_category_id(pool: &DbPool, name: &str) -> Result<Option<i64>, AppError> {

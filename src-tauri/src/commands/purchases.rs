@@ -2,7 +2,9 @@ use sqlx::{QueryBuilder, Sqlite, Transaction};
 use tauri::State;
 
 use crate::{
-    commands::settings::get_setting_value,
+    commands::util::{
+        build_document_number, item_not_found_error, load_text_setting, normalize_optional_string,
+    },
     db::DbPool,
     errors::AppError,
     models::purchase::{
@@ -24,43 +26,6 @@ pub struct PurchaseStats {
 #[derive(Debug, sqlx::FromRow)]
 struct ActiveItem {
     id: i64,
-}
-
-fn normalize_optional_string(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        let trimmed = value.trim().to_owned();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        }
-    })
-}
-
-async fn load_text_setting(pool: &DbPool, key: &str, default: &str) -> Result<String, AppError> {
-    Ok(get_setting_value(pool, key)
-        .await?
-        .and_then(|value| {
-            let trimmed = value.trim().to_owned();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed)
-            }
-        })
-        .unwrap_or_else(|| default.to_owned()))
-}
-
-fn build_document_number(prefix: &str, number: i64) -> String {
-    format!("{}-{:06}", prefix.trim(), number)
-}
-
-fn item_not_found_error() -> AppError {
-    AppError::new(
-        "ITEM_NOT_FOUND",
-        "الصنف غير موجود أو غير نشط",
-        "Item not found or inactive",
-    )
 }
 
 async fn get_active_item(
@@ -559,62 +524,22 @@ async fn update_purchase_invoice_impl(
     }
 
     // Persist the invoice header. The invoice_number is immutable; created_at is
-    // only changed when an explicit date override is supplied.
+    // only changed when an explicit date override is supplied (otherwise it is left
+    // out of the SET clause so the original timestamp is preserved).
+    let mut update = QueryBuilder::<Sqlite>::new("UPDATE purchase_invoices SET supplier_id = ");
+    update.push_bind(payload.supplier_id);
+    update.push(", subtotal_millieme = ").push_bind(subtotal_millieme);
+    update.push(", discount_millieme = ").push_bind(payload.global_discount_millieme);
+    update.push(", total_millieme = ").push_bind(total_millieme);
+    update.push(", paid_millieme = ").push_bind(paid_millieme);
+    update.push(", payment_method = ").push_bind(payment_method.as_str());
+    update.push(", status = ").push_bind(status);
+    update.push(", notes = ").push_bind(notes);
     if let Some(date) = invoice_date {
-        sqlx::query(
-            r#"
-            UPDATE purchase_invoices SET
-              supplier_id = ?,
-              subtotal_millieme = ?,
-              discount_millieme = ?,
-              total_millieme = ?,
-              paid_millieme = ?,
-              payment_method = ?,
-              status = ?,
-              notes = ?,
-              created_at = ?
-            WHERE id = ?
-            "#,
-        )
-        .bind(payload.supplier_id)
-        .bind(subtotal_millieme)
-        .bind(payload.global_discount_millieme)
-        .bind(total_millieme)
-        .bind(paid_millieme)
-        .bind(&payment_method)
-        .bind(status)
-        .bind(notes)
-        .bind(date)
-        .bind(payload.purchase_id)
-        .execute(&mut *tx)
-        .await?;
-    } else {
-        sqlx::query(
-            r#"
-            UPDATE purchase_invoices SET
-              supplier_id = ?,
-              subtotal_millieme = ?,
-              discount_millieme = ?,
-              total_millieme = ?,
-              paid_millieme = ?,
-              payment_method = ?,
-              status = ?,
-              notes = ?
-            WHERE id = ?
-            "#,
-        )
-        .bind(payload.supplier_id)
-        .bind(subtotal_millieme)
-        .bind(payload.global_discount_millieme)
-        .bind(total_millieme)
-        .bind(paid_millieme)
-        .bind(&payment_method)
-        .bind(status)
-        .bind(notes)
-        .bind(payload.purchase_id)
-        .execute(&mut *tx)
-        .await?;
+        update.push(", created_at = ").push_bind(date);
     }
+    update.push(" WHERE id = ").push_bind(payload.purchase_id);
+    update.build().execute(&mut *tx).await?;
 
     tx.commit().await?;
 

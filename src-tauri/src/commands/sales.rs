@@ -5,6 +5,9 @@ use tauri::State;
 
 use crate::{
     commands::settings::get_setting_value,
+    commands::util::{
+        build_document_number, item_not_found_error, load_text_setting, normalize_optional_string,
+    },
     db::DbPool,
     errors::AppError,
     models::{
@@ -22,7 +25,6 @@ struct ActiveItem {
     id: i64,
     barcode: Option<String>,
     buy_price_millieme: i64,
-    current_stock: i64,
     name_ar: String,
 }
 
@@ -63,17 +65,6 @@ enum SaleFailPoint {
     AfterInvoiceItems,
 }
 
-fn normalize_optional_string(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        let trimmed = value.trim().to_owned();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        }
-    })
-}
-
 fn compute_line_total(line: &InvoiceItemPayload) -> i64 {
     (line.unit_price_millieme * line.qty - line.discount_millieme).max(0)
 }
@@ -83,14 +74,6 @@ fn session_not_open_error() -> AppError {
         "SESSION_NOT_OPEN",
         "الوردية غير مفتوحة",
         "Session is not open",
-    )
-}
-
-fn item_not_found_error() -> AppError {
-    AppError::new(
-        "ITEM_NOT_FOUND",
-        "الصنف غير موجود أو غير نشط",
-        "Item not found or inactive",
     )
 }
 
@@ -114,7 +97,7 @@ async fn get_active_item(
     item_id: i64,
 ) -> Result<ActiveItem, AppError> {
     sqlx::query_as::<_, ActiveItem>(
-        "SELECT id, barcode, buy_price_millieme, current_stock, name_ar FROM items WHERE id = ? AND is_active = 1",
+        "SELECT id, barcode, buy_price_millieme, name_ar FROM items WHERE id = ? AND is_active = 1",
     )
     .bind(item_id)
     .fetch_optional(&mut **tx)
@@ -411,30 +394,12 @@ fn sale_status_and_paid(
     }
 }
 
-async fn load_text_setting(pool: &DbPool, key: &str, default: &str) -> Result<String, AppError> {
-    Ok(get_setting_value(pool, key)
-        .await?
-        .and_then(|value| {
-            let trimmed = value.trim().to_owned();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed)
-            }
-        })
-        .unwrap_or_else(|| default.to_owned()))
-}
-
 async fn load_i64_setting(pool: &DbPool, key: &str, default: i64) -> Result<i64, AppError> {
     Ok(get_setting_value(pool, key)
         .await?
         .and_then(|value| value.trim().parse::<i64>().ok())
         .unwrap_or(default)
         .max(0))
-}
-
-fn build_document_number(prefix: &str, number: i64) -> String {
-    format!("{}-{:06}", prefix.trim(), number)
 }
 
 fn calculate_tax_millieme(base_millieme: i64, tax_percent: i64) -> i64 {
@@ -460,6 +425,129 @@ async fn create_sale_invoice_impl_inner(
     create_sale_invoice_impl_tx(pool, payload, fail_point).await
 }
 
+/// Rejects a sale where any line, or the discounted subtotal, would fall below the
+/// item cost (buy price). Keeps the per-line and whole-invoice floor checks together.
+fn validate_sale_cost_floor(
+    items: &[InvoiceItemPayload],
+    validated_items: &[ActiveItem],
+    taxable_millieme: i64,
+) -> Result<(), AppError> {
+    let mut minimum_subtotal_millieme = 0i64;
+
+    for (item, active_item) in items.iter().zip(validated_items.iter()) {
+        let minimum_line_total_millieme = active_item.buy_price_millieme * item.qty;
+
+        if compute_line_total(item) < minimum_line_total_millieme {
+            return Err(AppError::validation("لا يمكن البيع بأقل من سعر التكلفة"));
+        }
+
+        minimum_subtotal_millieme += minimum_line_total_millieme;
+    }
+
+    if taxable_millieme < minimum_subtotal_millieme {
+        return Err(AppError::validation(
+            "الخصم يجعل إجمالي الفاتورة أقل من سعر التكلفة",
+        ));
+    }
+
+    Ok(())
+}
+
+async fn insert_sale_invoice_items(
+    tx: &mut Transaction<'_, Sqlite>,
+    invoice_id: i64,
+    items: &[InvoiceItemPayload],
+    validated_items: &[ActiveItem],
+) -> Result<(), AppError> {
+    for (item, active_item) in items.iter().zip(validated_items.iter()) {
+        sqlx::query(
+            r#"
+            INSERT INTO invoice_items (
+              invoice_id,
+              item_id,
+              barcode,
+              item_name_ar,
+              qty,
+              unit_price_millieme,
+              discount_millieme,
+              total_millieme
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(invoice_id)
+        .bind(item.item_id)
+        .bind(&active_item.barcode)
+        .bind(&active_item.name_ar)
+        .bind(item.qty)
+        .bind(item.unit_price_millieme)
+        .bind(item.discount_millieme)
+        .bind(compute_line_total(item))
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+/// Decrements item stock for each sold line and records the matching stock movement.
+async fn apply_sale_stock(
+    tx: &mut Transaction<'_, Sqlite>,
+    invoice_id: i64,
+    items: &[InvoiceItemPayload],
+    validated_items: &[ActiveItem],
+) -> Result<(), AppError> {
+    for (item, active_item) in items.iter().zip(validated_items.iter()) {
+        sqlx::query(
+            "UPDATE items SET current_stock = current_stock - ?, updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(item.qty)
+        .bind(active_item.id)
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO stock_movements (
+              item_id,
+              delta,
+              movement_type,
+              reference_id,
+              reference_type
+            )
+            VALUES (?, ?, 'sale', ?, 'invoice')
+            "#,
+        )
+        .bind(active_item.id)
+        .bind(-item.qty)
+        .bind(invoice_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn apply_customer_balance_delta(
+    tx: &mut Transaction<'_, Sqlite>,
+    customer_id: Option<i64>,
+    balance_delta: i64,
+) -> Result<(), AppError> {
+    if let Some(customer_id) = customer_id {
+        if balance_delta != 0 {
+            sqlx::query(
+                "UPDATE customers SET balance_millieme = balance_millieme + ? WHERE id = ?",
+            )
+            .bind(balance_delta)
+            .bind(customer_id)
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
 async fn create_sale_invoice_impl_tx(
     pool: &DbPool,
     payload: CreateSaleInvoicePayload,
@@ -473,9 +561,7 @@ async fn create_sale_invoice_impl_tx(
 
     let mut validated_items = Vec::with_capacity(payload.items.len());
     for item in &payload.items {
-        let active_item = get_active_item(&mut tx, item.item_id).await?;
-        let _ = active_item.current_stock;
-        validated_items.push(active_item);
+        validated_items.push(get_active_item(&mut tx, item.item_id).await?);
     }
 
     let (invoice_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM invoices")
@@ -490,25 +576,7 @@ async fn create_sale_invoice_impl_tx(
     let tax_millieme = calculate_tax_millieme(taxable_millieme, tax_percent);
     let total_millieme = taxable_millieme + tax_millieme;
 
-    let minimum_subtotal_millieme: i64 = payload
-        .items
-        .iter()
-        .zip(validated_items.iter())
-        .map(|(item, active_item)| active_item.buy_price_millieme * item.qty)
-        .sum();
-
-    for (item, active_item) in payload.items.iter().zip(validated_items.iter()) {
-        let line_total_millieme = compute_line_total(item);
-        let minimum_line_total_millieme = active_item.buy_price_millieme * item.qty;
-
-        if line_total_millieme < minimum_line_total_millieme {
-            return Err(AppError::validation("لا يمكن البيع بأقل من سعر التكلفة"));
-        }
-    }
-
-    if taxable_millieme < minimum_subtotal_millieme {
-        return Err(AppError::validation("الخصم يجعل إجمالي الفاتورة أقل من سعر التكلفة"));
-    }
+    validate_sale_cost_floor(&payload.items, &validated_items, taxable_millieme)?;
 
     let payment_method = payload.payment_method.trim().to_owned();
     let (status, paid_millieme, balance_delta) = sale_status_and_paid(
@@ -553,33 +621,7 @@ async fn create_sale_invoice_impl_tx(
 
     let invoice_id = result.last_insert_rowid();
 
-    for (item, active_item) in payload.items.iter().zip(validated_items.iter()) {
-        sqlx::query(
-            r#"
-            INSERT INTO invoice_items (
-              invoice_id,
-              item_id,
-              barcode,
-              item_name_ar,
-              qty,
-              unit_price_millieme,
-              discount_millieme,
-              total_millieme
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            "#,
-        )
-        .bind(invoice_id)
-        .bind(item.item_id)
-        .bind(&active_item.barcode)
-        .bind(&active_item.name_ar)
-        .bind(item.qty)
-        .bind(item.unit_price_millieme)
-        .bind(item.discount_millieme)
-        .bind(compute_line_total(item))
-        .execute(&mut *tx)
-        .await?;
-    }
+    insert_sale_invoice_items(&mut tx, invoice_id, &payload.items, &validated_items).await?;
 
     #[cfg(test)]
     if matches!(fail_point, Some(SaleFailPoint::AfterInvoiceItems)) {
@@ -591,41 +633,8 @@ async fn create_sale_invoice_impl_tx(
         ));
     }
 
-    for (payload_item, active_item) in payload.items.iter().zip(validated_items.iter()) {
-        sqlx::query(
-            "UPDATE items SET current_stock = current_stock - ?, updated_at = datetime('now') WHERE id = ?",
-        )
-        .bind(payload_item.qty)
-        .bind(active_item.id)
-        .execute(&mut *tx)
-        .await?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO stock_movements (
-              item_id,
-              delta,
-              movement_type,
-              reference_id,
-              reference_type
-            )
-            VALUES (?, ?, 'sale', ?, 'invoice')
-            "#,
-        )
-        .bind(active_item.id)
-        .bind(-payload_item.qty)
-        .bind(invoice_id)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    if payload.customer_id.is_some() && balance_delta != 0 {
-        sqlx::query("UPDATE customers SET balance_millieme = balance_millieme + ? WHERE id = ?")
-            .bind(balance_delta)
-            .bind(payload.customer_id)
-            .execute(&mut *tx)
-            .await?;
-    }
+    apply_sale_stock(&mut tx, invoice_id, &payload.items, &validated_items).await?;
+    apply_customer_balance_delta(&mut tx, payload.customer_id, balance_delta).await?;
 
     tx.commit().await?;
 
