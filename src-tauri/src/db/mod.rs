@@ -1,4 +1,8 @@
-use std::{fs, io, path::PathBuf, time::Duration};
+use std::{
+    fs, io,
+    path::PathBuf,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 
@@ -26,10 +30,29 @@ pub async fn init_db() -> Result<DbPool, sqlx::Error> {
         Ok(pool) => Ok(pool),
         Err(error) => {
             if path.exists() {
-                eprintln!("Resetting database at {:?} after initialization failure: {error}", path);
-                remove_database_files(&path);
-                let pool = initialize_pool(&path).await?;
-                return Ok(pool);
+                // The database file exists but could not be opened/migrated. NEVER
+                // delete it — for an accounting app that would silently destroy the
+                // user's financial history. Instead, move it (and its WAL/SHM/journal
+                // sidecars) aside to a timestamped `.corrupt-<ts>` backup so the data
+                // can be recovered manually, then start fresh. If we cannot move it
+                // safely, surface the original error rather than risk the data.
+                match backup_database_files(&path) {
+                    Ok(backup) => {
+                        eprintln!(
+                            "Database at {:?} failed to initialize ({error}); preserved a backup at {:?} and starting fresh.",
+                            path, backup
+                        );
+                        let pool = initialize_pool(&path).await?;
+                        return Ok(pool);
+                    }
+                    Err(backup_error) => {
+                        eprintln!(
+                            "Database at {:?} failed to initialize ({error}) and could not be backed up ({backup_error}); leaving it untouched.",
+                            path
+                        );
+                        return Err(error);
+                    }
+                }
             }
 
             Err(error)
@@ -37,19 +60,43 @@ pub async fn init_db() -> Result<DbPool, sqlx::Error> {
     }
 }
 
-fn remove_database_files(path: &PathBuf) {
-    let _ = fs::remove_file(path);
+/// Renames the database file and its sidecars to a timestamped backup so a failed
+/// initialization never destroys existing data. Returns the backup path of the main
+/// database file on success.
+fn backup_database_files(path: &PathBuf) -> Result<PathBuf, io::Error> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
 
-    if let Some(file_name) = path.file_name().and_then(|value| value.to_str()) {
-        if let Some(parent) = path.parent() {
-            let wal_path = parent.join(format!("{file_name}-wal"));
-            let shm_path = parent.join(format!("{file_name}-shm"));
-            let journal_path = parent.join(format!("{file_name}-journal"));
+    let backup_path = sidecar_path(path, &format!("corrupt-{timestamp}"));
+    fs::rename(path, &backup_path)?;
 
-            let _ = fs::remove_file(wal_path);
-            let _ = fs::remove_file(shm_path);
-            let _ = fs::remove_file(journal_path);
+    // Best-effort for the sidecars: they are only valid alongside the main file, so
+    // failing to move them is not fatal once the main file is safely renamed.
+    for suffix in ["wal", "shm", "journal"] {
+        let sidecar = sidecar_path(path, suffix);
+        if sidecar.exists() {
+            let _ = fs::rename(&sidecar, sidecar_path(&backup_path, suffix));
         }
+    }
+
+    Ok(backup_path)
+}
+
+/// Builds a sibling path by appending `-<suffix>` to the file name (e.g. `pos.db-wal`).
+fn sidecar_path(path: &PathBuf, suffix: &str) -> PathBuf {
+    let mut name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("pos.db")
+        .to_owned();
+    name.push('-');
+    name.push_str(suffix);
+
+    match path.parent() {
+        Some(parent) => parent.join(name),
+        None => PathBuf::from(name),
     }
 }
 
@@ -141,5 +188,38 @@ mod tests {
 
         assert_eq!(journal_mode, "wal");
         assert!(path.exists(), "database file should exist at {:?}", path);
+    }
+
+    #[test]
+    fn backup_database_files_preserves_data_instead_of_deleting() {
+        let dir = std::env::temp_dir().join(format!(
+            "safqah-backup-test-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system time should be valid")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir should be writable");
+
+        let db = dir.join("pos.db");
+        let payload = b"precious financial history";
+        std::fs::write(&db, payload).expect("should write fake db");
+        std::fs::write(sidecar_path(&db, "wal"), b"wal").expect("should write wal");
+
+        let backup = backup_database_files(&db).expect("backup should succeed");
+
+        // The original must be gone *because it was moved*, never silently destroyed.
+        assert!(!db.exists(), "original db should be renamed away");
+        assert!(backup.exists(), "backup should exist at {:?}", backup);
+        assert_eq!(
+            std::fs::read(&backup).expect("backup should be readable"),
+            payload,
+            "backed-up data must be byte-for-byte preserved"
+        );
+        assert!(
+            sidecar_path(&backup, "wal").exists(),
+            "wal sidecar should be moved alongside the backup"
+        );
     }
 }
