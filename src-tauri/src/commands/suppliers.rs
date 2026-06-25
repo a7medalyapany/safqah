@@ -2,6 +2,7 @@ use sqlx::{QueryBuilder, Sqlite};
 use tauri::State;
 
 use crate::{
+    commands::util::normalize_optional_string,
     db::DbPool,
     errors::AppError,
     models::import::CsvImportReport,
@@ -16,17 +17,6 @@ struct SupplierCsvRow {
     balance_millieme: Option<String>,
     tax_number: Option<String>,
     notes: Option<String>,
-}
-
-fn normalize_optional_string(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        let trimmed = value.trim().to_owned();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        }
-    })
 }
 
 fn validate_name(value: &str) -> Result<String, AppError> {

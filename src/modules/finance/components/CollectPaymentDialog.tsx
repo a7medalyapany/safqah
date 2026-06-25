@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+
+import { useInvalidate } from "@/shared/hooks/useInvalidate";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -20,7 +22,7 @@ export function CollectPaymentDialog({
   onOpenChange: (open: boolean) => void;
   sessionId: number | null;
 }) {
-  const queryClient = useQueryClient();
+  const invalidate = useInvalidate();
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("cash");
 
@@ -49,12 +51,12 @@ export function CollectPaymentDialog({
         toast.success("تم تسجيل الدفعة");
       }
 
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["deferred-invoices"] }),
-        queryClient.invalidateQueries({ queryKey: ["customers"] }),
-        queryClient.invalidateQueries({ queryKey: ["payments"] }),
-        queryClient.invalidateQueries({ queryKey: ["cash-summary"] }),
-      ]);
+      void invalidate(
+        ["deferred-invoices"],
+        ["customers"],
+        ["payments"],
+        ["cash-summary"],
+      );
 
       onOpenChange(false);
     },

@@ -1,6 +1,7 @@
-import { useDeferredValue, useState, type ReactNode } from "react";
+import { useDeferredValue, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@/shared/utils/invoke";
+import { TableCell, TableHeadCell as TableHead } from "@/shared/components/DataTable";
 import {
   BadgePlus,
   BookOpen,
@@ -214,20 +215,4 @@ function LoadingRows() {
       ))}
     </tr>
   ));
-}
-
-function TableHead({ children }: { children: ReactNode }) {
-  return <th className="px-4 py-3 text-right font-medium">{children}</th>;
-}
-
-function TableCell({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <td className={`px-4 py-3 align-middle ${className ?? ""}`}>{children}</td>
-  );
 }

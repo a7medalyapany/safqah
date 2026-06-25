@@ -1,22 +1,12 @@
 use tauri::State;
 
 use crate::{
+    commands::util::normalize_optional_string,
     db::DbPool,
     errors::AppError,
     models::session::Session,
     services::backup::BackupService,
 };
-
-fn normalize_optional_string(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        let trimmed = value.trim().to_owned();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        }
-    })
-}
 
 async fn get_session_by_id(pool: &DbPool, id: i64) -> Result<Session, AppError> {
     sqlx::query_as::<_, Session>("SELECT * FROM sessions WHERE id = ?")

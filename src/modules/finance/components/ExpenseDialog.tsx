@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+
+import { useInvalidate } from "@/shared/hooks/useInvalidate";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -22,7 +24,7 @@ export function ExpenseDialog({
   categories: ExpenseCategory[];
   sessionId: number | null;
 }) {
-  const queryClient = useQueryClient();
+  const invalidate = useInvalidate();
   const [categoryId, setCategoryId] = useState("");
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
@@ -41,10 +43,7 @@ export function ExpenseDialog({
       ),
     onSuccess: async () => {
       toast.success("تم تسجيل المصروف بنجاح");
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["expenses"] }),
-        queryClient.invalidateQueries({ queryKey: ["cash-summary"] }),
-      ]);
+      await invalidate(["expenses"], ["cash-summary"]);
       setCategoryId("");
       setAmount("");
       setDescription("");

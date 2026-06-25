@@ -8,6 +8,7 @@ use argon2::password_hash::{rand_core::OsRng, PasswordHash, SaltString};
 use argon2::{Argon2, PasswordHasher, PasswordVerifier};
 
 use crate::{
+    commands::util::normalize_optional_string,
     db::DbPool,
     errors::AppError,
     models::user::{CreateUserPayload, UpdateUserPayload, User, UserWithPassword},
@@ -24,17 +25,6 @@ pub struct SessionStore(Mutex<HashMap<String, i64>>);
 pub struct AuthResponse {
     pub user: User,
     pub token: String,
-}
-
-fn normalize_optional_string(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        let trimmed = value.trim().to_owned();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        }
-    })
 }
 
 fn normalize_required_string(value: String, message_ar: &str) -> Result<String, AppError> {

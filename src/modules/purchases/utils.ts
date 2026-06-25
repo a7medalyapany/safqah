@@ -1,6 +1,9 @@
 import type { DraftPurchaseItem, PriceSuggestion, PurchaseStatus } from "@/modules/purchases/types";
 import { toMillieme } from "@/shared/utils/money";
 
+// Re-exported from the shared date utilities (single source of truth).
+export { formatDate, formatDateOnly } from "@/shared/utils/date";
+
 export function getStatusTone(status: PurchaseStatus) {
   if (status === "paid") {
     return "border-emerald-200 bg-emerald-100 text-emerald-800";
@@ -13,32 +16,6 @@ export function getStatusTone(status: PurchaseStatus) {
   return "border-yellow-200 bg-yellow-100 text-yellow-800";
 }
 
-export function formatDate(value: string) {
-  const normalized = value.includes("T") ? value : value.replace(" ", "T");
-  const date = new Date(normalized);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("ar-EG", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
-}
-
-export function formatDateOnly(value: string) {
-  const normalized = value.includes("T") ? value : value.replace(" ", "T");
-  const date = new Date(normalized);
-
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-
-  return new Intl.DateTimeFormat("ar-EG", {
-    dateStyle: "short",
-  }).format(date);
-}
 
 export function calculateProfitMargin(costMillieme: number, sellMillieme: number) {
   if (sellMillieme <= 0) {

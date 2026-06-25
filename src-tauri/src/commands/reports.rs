@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use tauri::State;
 
-use crate::{db::DbPool, errors::AppError};
+use crate::{commands::util::normalize_optional_string, db::DbPool, errors::AppError};
 
 #[derive(Debug, serde::Serialize)]
 pub struct DailySalesReport {
@@ -100,17 +100,6 @@ pub struct SupplierBalanceRow {
     pub balance_millieme: i64,
     pub deferred_invoice_count: i64,
     pub oldest_invoice_date: Option<String>,
-}
-
-fn normalize_optional_string(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        let trimmed = value.trim().to_owned();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        }
-    })
 }
 
 fn log_slow_query(name: &str, start: Instant) {

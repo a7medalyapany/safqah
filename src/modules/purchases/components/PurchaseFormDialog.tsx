@@ -1,24 +1,25 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Info, PlusCircle, Search, X } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Search } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
 import type { Category, Item } from "@/modules/items/types";
 import { parseAppError } from "@/modules/items/utils";
 import type { Supplier } from "@/modules/parties/types";
 import type { DraftPurchaseItem, ItemPurchaseHistory, PaymentMethod, PriceSuggestion, PurchaseDetail } from "@/modules/purchases/types";
-import { buildPriceSuggestions, calculateProfitMargin, formatDateOnly, formatMarginLabel, parseInteger, safeToMillieme, toMoneyInput } from "@/modules/purchases/utils";
+import { buildPriceSuggestions, parseInteger, safeToMillieme, toMoneyInput } from "@/modules/purchases/utils";
+import { useInvalidate } from "@/shared/hooks/useInvalidate";
 import { invoke } from "@/shared/utils/invoke";
-import { formatEGP } from "@/shared/utils/money";
 import { useSessionStore } from "@/store/sessionSlice";
-import { Field, FilterField, SummaryRow, TableCell, TableHead } from "./PurchasePrimitives";
 import { ItemPurchaseHistoryPanel } from "./ItemPurchaseHistoryPanel";
+import { NewItemForm, type NewItemDraft } from "./NewItemForm";
+import { PurchaseHeaderFields } from "./PurchaseHeaderFields";
+import { PurchaseSummaryPanel } from "./PurchaseSummaryPanel";
+import { SelectedPurchaseItemsTable } from "./SelectedPurchaseItemsTable";
 
 export function PurchaseFormDialog({
   open,
@@ -31,7 +32,7 @@ export function PurchaseFormDialog({
   onSavedWithPriceSuggestions: (suggestions: PriceSuggestion[]) => void;
   purchaseToEdit?: PurchaseDetail | null;
 }) {
-  const queryClient = useQueryClient();
+  const invalidate = useInvalidate();
   const activeSession = useSessionStore((state) => state.activeSession);
   const isEditMode = purchaseToEdit !== null;
   const [supplierId, setSupplierId] = useState("");
@@ -52,7 +53,7 @@ export function PurchaseFormDialog({
   const [discount, setDiscount] = useState("");
   const [paid, setPaid] = useState("");
   const [invoiceDate, setInvoiceDate] = useState("");
-  const [newItemValues, setNewItemValues] = useState({
+  const [newItemValues, setNewItemValues] = useState<NewItemDraft>({
     name: "",
     barcode: "",
     categoryId: "",
@@ -232,19 +233,15 @@ export function PurchaseFormDialog({
       });
     },
     onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["purchases"] }),
-        queryClient.invalidateQueries({ queryKey: ["purchases-stats"] }),
-        queryClient.invalidateQueries({ queryKey: ["items"] }),
-        queryClient.invalidateQueries({ queryKey: ["suppliers"] }),
+      await invalidate(
+        ["purchases"],
+        ["purchases-stats"],
+        ["items"],
+        ["suppliers"],
         ...(purchaseToEdit
-          ? [
-              queryClient.invalidateQueries({
-                queryKey: ["purchase-detail", purchaseToEdit.id],
-              }),
-            ]
+          ? [["purchase-detail", purchaseToEdit.id]]
           : []),
-      ]);
+      );
       toast.success(
         purchaseToEdit
           ? "تم تحديث فاتورة الشراء بنجاح"
@@ -312,7 +309,7 @@ export function PurchaseFormDialog({
         sellPrice: "",
       });
 
-      void queryClient.invalidateQueries({ queryKey: ["items"] });
+      void invalidate(["items"]);
     },
     onError: (error) => {
       const appError = parseAppError(error);
@@ -466,67 +463,18 @@ export function PurchaseFormDialog({
         </DialogHeader>
 
         <div className="space-y-5">
-          <div className="grid gap-4 md:grid-cols-2">
-            <FilterField label="المورد (اختياري)">
-              <select
-                dir="rtl"
-                className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                value={supplierId}
-                onChange={(event) => setSupplierId(event.target.value)}
-              >
-                <option value="">بدون مورد</option>
-                {(suppliersQuery.data ?? []).map((supplier) => (
-                  <option key={supplier.id} value={String(supplier.id)}>
-                    {supplier.name}
-                  </option>
-                ))}
-              </select>
-            </FilterField>
-
-            <FilterField label="طريقة الدفع">
-              <div className="flex flex-wrap gap-2">
-                {(
-                  [
-                    { value: "cash", label: "كاش" },
-                    { value: "deferred", label: "آجل" },
-                    { value: "partial", label: "جزئي" },
-                  ] as const
-                ).map((option) => (
-                  <Button
-                    key={option.value}
-                    type="button"
-                    variant={
-                      paymentMethod === option.value ? "default" : "outline"
-                    }
-                    onClick={() => setPaymentMethod(option.value)}
-                  >
-                    {option.label}
-                  </Button>
-                ))}
-              </div>
-            </FilterField>
-
-            {isEditMode ? (
-              <FilterField label="تاريخ الفاتورة">
-                <Input
-                  type="date"
-                  value={invoiceDate}
-                  onChange={(event) => setInvoiceDate(event.target.value)}
-                />
-              </FilterField>
-            ) : null}
-          </div>
-
-          <FilterField label="ملاحظات">
-            <textarea
-              dir="rtl"
-              rows={3}
-              className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-              value={notes}
-              onChange={(event) => setNotes(event.target.value)}
-              placeholder="أضف ملاحظات إضافية (اختياري)"
-            />
-          </FilterField>
+          <PurchaseHeaderFields
+            supplierId={supplierId}
+            onSupplierIdChange={setSupplierId}
+            suppliers={suppliersQuery.data ?? []}
+            paymentMethod={paymentMethod}
+            onPaymentMethodChange={setPaymentMethod}
+            isEditMode={isEditMode}
+            invoiceDate={invoiceDate}
+            onInvoiceDateChange={setInvoiceDate}
+            notes={notes}
+            onNotesChange={setNotes}
+          />
 
           <div className="rounded-xl border bg-muted/10 p-4">
             <div className="flex flex-wrap gap-2">
@@ -601,299 +549,35 @@ export function PurchaseFormDialog({
                 ) : null}
               </div>
             ) : (
-              <div className="mt-4 grid gap-3 md:grid-cols-2">
-                <Field
-                  label="اسم الصنف"
-                  value={newItemValues.name}
-                  onChange={(value) =>
-                    setNewItemValues((current) => ({ ...current, name: value }))
-                  }
-                />
-                <Field
-                  label="الباركود"
-                  value={newItemValues.barcode}
-                  onChange={(value) =>
-                    setNewItemValues((current) => ({
-                      ...current,
-                      barcode: value,
-                    }))
-                  }
-                />
-                <FilterField label="التصنيف">
-                  <select
-                    dir="rtl"
-                    className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                    value={newItemValues.categoryId}
-                    onChange={(event) =>
-                      setNewItemValues((current) => ({
-                        ...current,
-                        categoryId: event.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">بدون تصنيف</option>
-                    {(categoriesQuery.data ?? []).map((category) => (
-                      <option key={category.id} value={String(category.id)}>
-                        {category.name_ar}
-                      </option>
-                    ))}
-                  </select>
-                </FilterField>
-                <Field
-                  label="الكمية"
-                  type="number"
-                  min="1"
-                  value={newItemValues.qty}
-                  onChange={(value) =>
-                    setNewItemValues((current) => ({ ...current, qty: value }))
-                  }
-                />
-                <Field
-                  label="سعر الشراء"
-                  type="number"
-                  step="0.001"
-                  min="0"
-                  value={newItemValues.buyPrice}
-                  onChange={(value) =>
-                    setNewItemValues((current) => ({
-                      ...current,
-                      buyPrice: value,
-                    }))
-                  }
-                />
-                <Field
-                  label="سعر البيع"
-                  type="number"
-                  step="0.001"
-                  min="0"
-                  value={newItemValues.sellPrice}
-                  onChange={(value) =>
-                    setNewItemValues((current) => ({
-                      ...current,
-                      sellPrice: value,
-                    }))
-                  }
-                />
-                <div className="md:col-span-2">
-                  <Button
-                    type="button"
-                    onClick={handleCreateItem}
-                    disabled={createItemMutation.isPending}
-                  >
-                    <PlusCircle />
-                    إضافة الصنف للفاتورة
-                  </Button>
-                </div>
-              </div>
+              <NewItemForm
+                values={newItemValues}
+                onChange={setNewItemValues}
+                categories={categoriesQuery.data ?? []}
+                onSubmit={handleCreateItem}
+                isSubmitting={createItemMutation.isPending}
+              />
             )}
           </div>
 
-          <div className="overflow-x-auto rounded-xl border">
-            <table className="min-w-full text-right text-sm">
-              <thead className="bg-muted/40 text-muted-foreground">
-                <tr>
-                  <TableHead>اسم الصنف</TableHead>
-                  <TableHead>الكمية</TableHead>
-                  <TableHead>سعر الشراء</TableHead>
-                  <TableHead>سعر البيع المقترح</TableHead>
-                  <TableHead>الإجمالي</TableHead>
-                  <TableHead></TableHead>
-                </tr>
-              </thead>
-              <tbody>
-                {selectedItems.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={6}
-                      className="px-6 py-8 text-center text-sm text-muted-foreground"
-                    >
-                      لم يتم إضافة أصناف بعد.
-                    </td>
-                  </tr>
-                ) : (
-                  <TooltipProvider>
-                    {selectedItems.map((item) => {
-                      const unitCostMillieme = safeToMillieme(item.unitCost);
-                      const sellPriceMillieme = item.suggestedSellPrice.trim()
-                        ? safeToMillieme(item.suggestedSellPrice)
-                        : item.currentSellPriceMillieme;
-                      const margin = calculateProfitMargin(
-                        unitCostMillieme,
-                        sellPriceMillieme,
-                      );
+          <SelectedPurchaseItemsTable
+            items={selectedItems}
+            onUpdateField={updateItemField}
+            onRemove={(itemId) =>
+              setSelectedItems((current) =>
+                current.filter((entry) => entry.itemId !== itemId),
+              )
+            }
+          />
 
-                      return (
-                        <tr key={item.itemId} className="border-t">
-                          <TableCell className="font-medium text-foreground">
-                            <div className="flex items-center justify-between gap-2">
-                              <span>{item.itemName}</span>
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <button
-                                    type="button"
-                                    className="inline-flex text-muted-foreground transition hover:text-foreground"
-                                    aria-label="معلومة آخر شراء"
-                                  >
-                                    <Info className="size-4" />
-                                  </button>
-                                </TooltipTrigger>
-                                <TooltipContent>
-                                  {item.lastPurchaseCostMillieme !== null &&
-                                  item.lastPurchaseDate ? (
-                                    <p>
-                                      آخر شراء:{" "}
-                                      {formatEGP(item.lastPurchaseCostMillieme)}{" "}
-                                      — {formatDateOnly(item.lastPurchaseDate)}
-                                    </p>
-                                  ) : (
-                                    <p>لا يوجد سجل شراء سابق لهذا الصنف.</p>
-                                  )}
-                                </TooltipContent>
-                              </Tooltip>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              min={1}
-                              value={item.qty}
-                              onChange={(event) =>
-                                updateItemField(
-                                  item.itemId,
-                                  "qty",
-                                  event.target.value,
-                                )
-                              }
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <div className="space-y-1.5">
-                              <Input
-                                type="number"
-                                step="0.001"
-                                min={0}
-                                value={item.unitCost}
-                                onChange={(event) =>
-                                  updateItemField(
-                                    item.itemId,
-                                    "unitCost",
-                                    event.target.value,
-                                  )
-                                }
-                              />
-
-                              {item.lastPurchaseCostMillieme !== null ? (
-                                unitCostMillieme >
-                                item.lastPurchaseCostMillieme ? (
-                                  <p className="flex items-center gap-1 text-xs text-amber-700">
-                                    <AlertTriangle className="size-3.5" />
-                                    السعر الجديد أعلى من آخر سعر شراء
-                                  </p>
-                                ) : unitCostMillieme <
-                                  item.lastPurchaseCostMillieme ? (
-                                  <p className="flex items-center gap-1 text-xs text-emerald-700">
-                                    <CheckCircle2 className="size-3.5" />
-                                    السعر الجديد أقل من آخر سعر شراء
-                                  </p>
-                                ) : null
-                              ) : null}
-
-                              <p
-                                className={cn(
-                                  "text-xs",
-                                  margin === null
-                                    ? "text-muted-foreground"
-                                    : margin > 20
-                                      ? "text-emerald-700"
-                                      : margin >= 10
-                                        ? "text-amber-700"
-                                        : "text-red-700",
-                                )}
-                              >
-                                هامش الربح المتوقع: {formatMarginLabel(margin)}
-                              </p>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              step="0.001"
-                              min={0}
-                              value={item.suggestedSellPrice}
-                              onChange={(event) =>
-                                updateItemField(
-                                  item.itemId,
-                                  "suggestedSellPrice",
-                                  event.target.value,
-                                )
-                              }
-                              placeholder="اختياري"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            {formatEGP(
-                              unitCostMillieme * parseInteger(item.qty),
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              onClick={() =>
-                                setSelectedItems((current) =>
-                                  current.filter(
-                                    (entry) => entry.itemId !== item.itemId,
-                                  ),
-                                )
-                              }
-                            >
-                              <X />
-                            </Button>
-                          </TableCell>
-                        </tr>
-                      );
-                    })}
-                  </TooltipProvider>
-                )}
-              </tbody>
-            </table>
-          </div>
-
-          <div className="rounded-xl border bg-muted/10 p-4">
-            <div className="grid gap-3 md:grid-cols-2">
-              <SummaryRow
-                label="المجموع الفرعي"
-                value={formatEGP(subtotalMillieme)}
-              />
-              <FilterField label="الخصم">
-                <Input
-                  type="number"
-                  step="0.001"
-                  min={0}
-                  value={discount}
-                  onChange={(event) => setDiscount(event.target.value)}
-                />
-              </FilterField>
-              <SummaryRow
-                label="الإجمالي"
-                value={formatEGP(totalMillieme)}
-                strong
-              />
-              <FilterField label="المدفوع">
-                <Input
-                  type="number"
-                  step="0.001"
-                  min={0}
-                  value={paid}
-                  onChange={(event) => setPaid(event.target.value)}
-                />
-              </FilterField>
-              <SummaryRow
-                label="المتبقي"
-                value={formatEGP(remainingMillieme)}
-              />
-            </div>
-          </div>
+          <PurchaseSummaryPanel
+            subtotalMillieme={subtotalMillieme}
+            discount={discount}
+            onDiscountChange={setDiscount}
+            totalMillieme={totalMillieme}
+            paid={paid}
+            onPaidChange={setPaid}
+            remainingMillieme={remainingMillieme}
+          />
         </div>
 
         <DialogFooter className="flex-row-reverse justify-start gap-2">

@@ -11,6 +11,7 @@ pub mod settings;
 pub mod sessions;
 pub mod suppliers;
 pub mod sales;
+pub mod util;
 
 use serde_json::Value;
 
