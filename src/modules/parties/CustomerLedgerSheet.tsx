@@ -15,6 +15,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Sheet,
@@ -378,18 +385,16 @@ function CollectPaymentDialogInline({
             <span className="block text-sm font-medium text-foreground">
               طريقة الاستلام
             </span>
-            <select
-              dir="rtl"
-              className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-              value={method}
-              onChange={(event) =>
-                setMethod(event.target.value as PaymentMethod)
-              }
-            >
-              <option value="cash">كاش</option>
-              <option value="card">فيزا</option>
-              <option value="bank">تحويل</option>
-            </select>
+            <Select value={method} onValueChange={(value) => setMethod(value as PaymentMethod)}>
+              <SelectTrigger dir="rtl" className="h-9 w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent dir="rtl">
+                <SelectItem value="cash">كاش</SelectItem>
+                <SelectItem value="card">فيزا</SelectItem>
+                <SelectItem value="bank">تحويل</SelectItem>
+              </SelectContent>
+            </Select>
           </label>
 
           <DialogFooter className="flex-row-reverse justify-start gap-2 bg-transparent p-0 pt-2">

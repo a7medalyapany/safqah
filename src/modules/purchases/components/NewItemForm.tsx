@@ -2,6 +2,13 @@ import type { Dispatch, SetStateAction } from "react";
 import { PlusCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { Category } from "@/modules/items/types";
 
 import { Field, FilterField } from "./PurchasePrimitives";
@@ -44,24 +51,27 @@ export function NewItemForm({
         }
       />
       <FilterField label="التصنيف">
-        <select
-          dir="rtl"
-          className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-          value={values.categoryId}
-          onChange={(event) =>
+        <Select
+          value={values.categoryId || "none"}
+          onValueChange={(next) =>
             onChange((current) => ({
               ...current,
-              categoryId: event.target.value,
+              categoryId: next === "none" ? "" : next,
             }))
           }
         >
-          <option value="">بدون تصنيف</option>
-          {categories.map((category) => (
-            <option key={category.id} value={String(category.id)}>
-              {category.name_ar}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger dir="rtl" className="h-9 w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent dir="rtl">
+            <SelectItem value="none">بدون تصنيف</SelectItem>
+            {categories.map((category) => (
+              <SelectItem key={category.id} value={String(category.id)}>
+                {category.name_ar}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </FilterField>
       <Field
         label="الكمية"

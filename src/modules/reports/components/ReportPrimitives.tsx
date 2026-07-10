@@ -1,6 +1,6 @@
 import { ArrowLeft, Download, Printer } from "lucide-react";
 import { forwardRef, type ReactNode } from "react";
-import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import { chartColors } from "@/modules/reports/constants";
 import type { TopItemRow } from "@/modules/reports/types";
+import { formatAxisNumber } from "@/shared/utils/money";
 import { SectionCard } from "@/shared/components/SectionCard";
 
 export function ReportShell({
@@ -186,7 +187,7 @@ export function BarChartBox({
         <LineChart data={data}>
           <CartesianGrid strokeDasharray="3 3" />
           <XAxis dataKey={xKey} />
-          <YAxis />
+          <YAxis tickFormatter={formatAxisNumber} />
           <Tooltip />
           <Line
             type="monotone"
@@ -214,7 +215,7 @@ export function HorizontalBarChartBox({ data }: { data: TopItemRow[] }) {
           margin={{ left: 24, right: 24 }}
         >
           <CartesianGrid strokeDasharray="3 3" />
-          <XAxis type="number" />
+          <XAxis type="number" tickFormatter={formatAxisNumber} />
           <YAxis
             type="category"
             dataKey="name_ar"
@@ -253,14 +254,8 @@ export function PieChartBox({ data }: { data: { name: string; value: number }[] 
   return (
     <div dir="ltr" style={{ direction: "ltr" }} className="h-full min-h-70">
       <ResponsiveContainer width="100%" height="100%">
-        <PieChart>
-          <Pie
-            data={data}
-            dataKey="value"
-            nameKey="name"
-            outerRadius={105}
-            label
-          >
+        <PieChart margin={{ bottom: 8 }}>
+          <Pie data={data} dataKey="value" nameKey="name" outerRadius={95}>
             {data.map((entry, index) => (
               <Cell
                 key={entry.name}
@@ -269,6 +264,12 @@ export function PieChartBox({ data }: { data: { name: string; value: number }[] 
             ))}
           </Pie>
           <Tooltip />
+          <Legend
+            layout="horizontal"
+            verticalAlign="bottom"
+            align="center"
+            wrapperStyle={{ fontSize: 13 }}
+          />
         </PieChart>
       </ResponsiveContainer>
     </div>

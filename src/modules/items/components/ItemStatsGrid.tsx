@@ -1,4 +1,4 @@
-import { Boxes, CircleAlert, PackageSearch, Trash2 } from "lucide-react";
+import { Boxes, CircleAlert, PackageSearch, PackageX } from "lucide-react";
 
 import { StatCard } from "@/shared/components/StatCard";
 
@@ -30,7 +30,7 @@ export function ItemStatsGrid({ stats }: { stats: ItemStats }) {
       <StatCard
         title="نافذ المخزون"
         value={stats.outOfStock}
-        icon={<Trash2 className="size-5" />}
+        icon={<PackageX className="size-5" />}
       />
     </section>
   );

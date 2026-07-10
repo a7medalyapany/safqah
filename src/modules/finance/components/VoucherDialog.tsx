@@ -6,6 +6,13 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { parseAppError } from "@/modules/items/utils";
 import type { PaymentMethod } from "@/modules/finance/types";
@@ -203,16 +210,16 @@ export function VoucherDialog({
             <span className="block text-sm font-medium text-foreground">
               {copy.methodLabel}
             </span>
-            <select
-              dir="rtl"
-              className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-              value={method}
-              onChange={(event) => setMethod(event.target.value as PaymentMethod)}
-            >
-              <option value="cash">كاش</option>
-              <option value="card">فيزا</option>
-              <option value="bank">تحويل بنكي</option>
-            </select>
+            <Select value={method} onValueChange={(value) => setMethod(value as PaymentMethod)}>
+              <SelectTrigger dir="rtl" className="h-9 w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent dir="rtl">
+                <SelectItem value="cash">كاش</SelectItem>
+                <SelectItem value="card">فيزا</SelectItem>
+                <SelectItem value="bank">تحويل بنكي</SelectItem>
+              </SelectContent>
+            </Select>
           </label>
 
           <label className="space-y-2">

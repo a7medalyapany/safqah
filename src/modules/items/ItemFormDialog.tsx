@@ -18,6 +18,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { Category, Item, ItemFormValues } from "@/modules/items/types";
 import {
   parseAppError,
@@ -294,20 +301,23 @@ function SelectField({
   return (
     <label className="space-y-2 text-right">
       <span className="block text-sm font-medium text-foreground">{label}</span>
-      <select
-        dir="rtl"
-        className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
+      <Select
+        value={value || "none"}
+        onValueChange={(next) => onChange(next === "none" ? "" : next)}
+        disabled={loading}
       >
-        <option value="">بدون تصنيف</option>
-        {loading ? <option value="">جارٍ تحميل التصنيفات...</option> : null}
-        {options.map((category) => (
-          <option key={category.id} value={String(category.id)}>
-            {category.name_ar}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger dir="rtl" className="w-full">
+          <SelectValue placeholder={loading ? "جارٍ تحميل التصنيفات..." : undefined} />
+        </SelectTrigger>
+        <SelectContent dir="rtl">
+          <SelectItem value="none">بدون تصنيف</SelectItem>
+          {options.map((category) => (
+            <SelectItem key={category.id} value={String(category.id)}>
+              {category.name_ar}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </label>
   );
 }

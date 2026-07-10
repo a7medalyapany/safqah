@@ -12,6 +12,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useCreateReturnMutation } from "@/modules/sales/hooks";
 import type {
   InvoiceDetail,
@@ -229,19 +236,20 @@ export function ReturnDialog({
                 className="text-base font-semibold"
               />
               <FilterField label="طريقة رد المبلغ">
-                <select
-                  dir="rtl"
-                  className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                <Select
                   value={refundMethod}
-                  onChange={(event) =>
-                    setRefundMethod(event.target.value as RefundMethod)
-                  }
+                  onValueChange={(value) => setRefundMethod(value as RefundMethod)}
                 >
-                  <option value="cash">نقدي</option>
-                  <option value="credit" disabled={!invoice.customer_id}>
-                    رصيد للعميل
-                  </option>
-                </select>
+                  <SelectTrigger dir="rtl" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent dir="rtl">
+                    <SelectItem value="cash">نقدي</SelectItem>
+                    <SelectItem value="credit" disabled={!invoice.customer_id}>
+                      رصيد للعميل
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </FilterField>
             </div>
           </div>

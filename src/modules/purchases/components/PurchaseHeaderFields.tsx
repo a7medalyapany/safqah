@@ -1,5 +1,12 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { Supplier } from "@/modules/parties/types";
 import type { PaymentMethod } from "@/modules/purchases/types";
 
@@ -38,19 +45,22 @@ export function PurchaseHeaderFields({
     <>
       <div className="grid gap-4 md:grid-cols-2">
         <FilterField label="المورد (اختياري)">
-          <select
-            dir="rtl"
-            className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            value={supplierId}
-            onChange={(event) => onSupplierIdChange(event.target.value)}
+          <Select
+            value={supplierId || "none"}
+            onValueChange={(value) => onSupplierIdChange(value === "none" ? "" : value)}
           >
-            <option value="">بدون مورد</option>
-            {suppliers.map((supplier) => (
-              <option key={supplier.id} value={String(supplier.id)}>
-                {supplier.name}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger dir="rtl" className="h-9 w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent dir="rtl">
+              <SelectItem value="none">بدون مورد</SelectItem>
+              {suppliers.map((supplier) => (
+                <SelectItem key={supplier.id} value={String(supplier.id)}>
+                  {supplier.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </FilterField>
 
         <FilterField label="طريقة الدفع">
