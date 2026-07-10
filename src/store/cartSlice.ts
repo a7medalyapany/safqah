@@ -27,6 +27,7 @@ interface CartState {
   globalDiscountMillieme: number;
   paymentMethod: "cash" | "card" | "deferred" | "split";
   paidCashMillieme: number;
+  paidCashManuallySet: boolean;
   paidCardMillieme: number;
   notes: string;
   subtotalMillieme: () => number;
@@ -43,7 +44,7 @@ interface CartState {
   setCustomer: (id: number, name: string) => void;
   clearCustomer: () => void;
   setPaymentMethod: (method: CartState["paymentMethod"]) => void;
-  setPaidCashAmount: (milliemes: number) => void;
+  setPaidCashAmount: (milliemes: number, options?: { manual?: boolean }) => void;
   setPaidCardAmount: (milliemes: number) => void;
   setNotes: (notes: string) => void;
   clearCart: () => void;
@@ -162,6 +163,7 @@ const initialCartState = {
   globalDiscountMillieme: 0,
   paymentMethod: "cash" as const,
   paidCashMillieme: 0,
+  paidCashManuallySet: false,
   paidCardMillieme: 0,
   notes: "",
 };
@@ -354,6 +356,7 @@ const createCartState: StateCreator<CartState> = (set, get) => ({
         return {
           paymentMethod: method,
           paidCashMillieme: totalMillieme,
+          paidCashManuallySet: false,
           paidCardMillieme: 0,
         };
       }
@@ -362,6 +365,7 @@ const createCartState: StateCreator<CartState> = (set, get) => ({
         return {
           paymentMethod: method,
           paidCashMillieme: 0,
+          paidCashManuallySet: false,
           paidCardMillieme: totalMillieme,
         };
       }
@@ -370,6 +374,7 @@ const createCartState: StateCreator<CartState> = (set, get) => ({
         return {
           paymentMethod: method,
           paidCashMillieme: 0,
+          paidCashManuallySet: false,
           paidCardMillieme: 0,
         };
       }
@@ -377,12 +382,16 @@ const createCartState: StateCreator<CartState> = (set, get) => ({
       return {
         paymentMethod: method,
         paidCashMillieme: totalMillieme,
+        paidCashManuallySet: false,
         paidCardMillieme: 0,
       };
     });
   },
-  setPaidCashAmount: (milliemes) => {
-    set({ paidCashMillieme: clampNonNegativeInteger(milliemes) });
+  setPaidCashAmount: (milliemes, options) => {
+    set({
+      paidCashMillieme: clampNonNegativeInteger(milliemes),
+      paidCashManuallySet: options?.manual ?? false,
+    });
   },
   setPaidCardAmount: (milliemes) => {
     set({ paidCardMillieme: clampNonNegativeInteger(milliemes) });

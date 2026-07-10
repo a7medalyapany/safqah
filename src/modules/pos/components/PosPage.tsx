@@ -58,6 +58,9 @@ export default function PosPage() {
   );
   const paymentMethod = useCartStore((state) => state.paymentMethod);
   const paidCashMillieme = useCartStore((state) => state.paidCashMillieme);
+  const paidCashManuallySet = useCartStore(
+    (state) => state.paidCashManuallySet,
+  );
   const paidCardMillieme = useCartStore((state) => state.paidCardMillieme);
   const notes = useCartStore((state) => state.notes);
   const subtotalMillieme = useCartStore((state) => state.subtotalMillieme());
@@ -191,11 +194,18 @@ export default function PosPage() {
         paymentMethod,
         paidCashMillieme,
         totalMillieme,
+        paidCashManuallySet,
       })
     ) {
       setPaidCashAmount(totalMillieme);
     }
-  }, [paidCashMillieme, paymentMethod, setPaidCashAmount, totalMillieme]);
+  }, [
+    paidCashManuallySet,
+    paidCashMillieme,
+    paymentMethod,
+    setPaidCashAmount,
+    totalMillieme,
+  ]);
 
   useEffect(() => {
     if (!customerId) {
@@ -478,7 +488,11 @@ export default function PosPage() {
                 projectedCustomerBalanceMillieme={
                   projectedCustomerBalanceMillieme
                 }
-                onSetPaidCashAmount={setPaidCashAmount}
+                onSetPaidCashAmount={(amount) =>
+                  setPaidCashAmount(amount, {
+                    manual: amount !== totalMillieme,
+                  })
+                }
                 onSetPaidCardAmount={setPaidCardAmount}
                 onEnsureCashPaidAtLeastTotal={ensureCashPaidAtLeastTotal}
               />
