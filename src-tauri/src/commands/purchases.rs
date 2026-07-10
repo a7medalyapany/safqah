@@ -14,6 +14,7 @@ use crate::{
         UpdatePurchasePayload,
     },
 };
+use crate::commands::{auth::SessionStore, guard};
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
 pub struct PurchaseStats {
@@ -636,45 +637,71 @@ async fn get_item_purchase_history_impl(
 #[tauri::command]
 pub async fn list_purchases(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     filters: PurchaseFilters,
 ) -> Result<Vec<PurchaseSummary>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     list_purchases_impl(&pool, filters).await
 }
 
 #[tauri::command]
 pub async fn get_purchase_detail(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     purchase_id: i64,
 ) -> Result<PurchaseDetail, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     get_purchase_detail_impl(&pool, purchase_id).await
 }
 
 #[tauri::command]
 pub async fn create_purchase_invoice(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     payload: CreatePurchasePayload,
 ) -> Result<PurchaseInvoice, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     create_purchase_invoice_impl(&pool, payload).await
 }
 
 #[tauri::command]
 pub async fn update_purchase_invoice(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     payload: UpdatePurchasePayload,
 ) -> Result<PurchaseInvoice, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     update_purchase_invoice_impl(&pool, payload).await
 }
 
 #[tauri::command]
-pub async fn get_purchase_stats(pool: State<'_, DbPool>) -> Result<PurchaseStats, AppError> {
+pub async fn get_purchase_stats(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+) -> Result<PurchaseStats, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     get_purchase_stats_impl(&pool).await
 }
 
 #[tauri::command]
 pub async fn get_item_purchase_history(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     item_id: i64,
 ) -> Result<ItemPurchaseHistory, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     get_item_purchase_history_impl(&pool, item_id).await
 }
 

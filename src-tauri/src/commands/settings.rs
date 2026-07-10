@@ -7,6 +7,7 @@ use crate::{
     db::{database_file_path, DbPool},
     errors::AppError,
 };
+use crate::commands::{auth::SessionStore, guard};
 
 async fn settings_table_exists(pool: &DbPool) -> Result<bool, AppError> {
     let exists: (i64,) = sqlx::query_as(
@@ -51,15 +52,25 @@ pub async fn get_setting_value(pool: &DbPool, key: &str) -> Result<Option<String
 }
 
 #[tauri::command]
-pub async fn get_settings(pool: State<'_, DbPool>) -> Result<HashMap<String, String>, AppError> {
+pub async fn get_settings(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+) -> Result<HashMap<String, String>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     fetch_settings_map(&pool).await
 }
 
 #[tauri::command]
 pub async fn update_settings(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     updates: HashMap<String, String>,
 ) -> Result<bool, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_ONLY).await?;
+
     let mut tx = pool.begin().await?;
 
     for (key, value) in updates {
@@ -81,18 +92,37 @@ pub async fn update_settings(
 }
 
 #[tauri::command]
-pub async fn get_setting(pool: State<'_, DbPool>, key: String) -> Result<Option<String>, AppError> {
+pub async fn get_setting(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+    key: String,
+) -> Result<Option<String>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     get_setting_value(&pool, &key).await
 }
 
 #[tauri::command]
-pub async fn vacuum_database(pool: State<'_, DbPool>) -> Result<bool, AppError> {
+pub async fn vacuum_database(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+) -> Result<bool, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_ONLY).await?;
+
     sqlx::query("VACUUM").execute(&*pool).await?;
     Ok(true)
 }
 
 #[tauri::command]
-pub async fn get_db_file_size() -> Result<u64, AppError> {
+pub async fn get_db_file_size(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+) -> Result<u64, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_ONLY).await?;
+
     let path = database_file_path()?;
     let metadata = std::fs::metadata(path).map_err(|error| {
         AppError::new(
@@ -106,16 +136,36 @@ pub async fn get_db_file_size() -> Result<u64, AppError> {
 
 #[tauri::command]
 pub async fn is_first_launch(pool: State<'_, DbPool>) -> Result<bool, AppError> {
+    is_first_launch_impl(&pool).await
+}
+
+async fn is_first_launch_impl(pool: &DbPool) -> Result<bool, AppError> {
     let result: Option<(String,)> =
         sqlx::query_as("SELECT value FROM settings WHERE key = 'setup_complete'")
-            .fetch_optional(&*pool)
+            .fetch_optional(pool)
             .await?;
 
     Ok(result.map(|(v,)| v != "1").unwrap_or(true))
 }
 
+/// The setup commands run before any user exists, so they cannot demand a
+/// session token. Instead they self-disable once setup has completed.
+async fn require_first_launch(pool: &DbPool) -> Result<(), AppError> {
+    if is_first_launch_impl(pool).await? {
+        Ok(())
+    } else {
+        Err(AppError::new(
+            "SETUP_ALREADY_COMPLETE",
+            "تم إعداد البرنامج بالفعل",
+            "Setup has already been completed",
+        ))
+    }
+}
+
 #[tauri::command]
 pub async fn complete_setup(pool: State<'_, DbPool>) -> Result<bool, AppError> {
+    require_first_launch(&pool).await?;
+
     sqlx::query(
         "INSERT OR REPLACE INTO settings (key, value, updated_at)
          VALUES ('setup_complete', '1', datetime('now'))",
@@ -128,6 +178,8 @@ pub async fn complete_setup(pool: State<'_, DbPool>) -> Result<bool, AppError> {
 
 #[tauri::command]
 pub async fn seed_sample_data(pool: State<'_, DbPool>) -> Result<bool, AppError> {
+    require_first_launch(&pool).await?;
+
     let mut tx = pool.begin().await?;
 
     // ── Categories (electricity equipment) ──

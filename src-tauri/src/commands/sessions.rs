@@ -7,6 +7,7 @@ use crate::{
     models::session::Session,
     services::backup::BackupService,
 };
+use crate::commands::{auth::SessionStore, guard};
 
 async fn get_session_by_id(pool: &DbPool, id: i64) -> Result<Session, AppError> {
     sqlx::query_as::<_, Session>("SELECT * FROM sessions WHERE id = ?")
@@ -162,27 +163,41 @@ async fn get_session_sales_total_millieme_impl(
 }
 
 #[tauri::command]
-pub async fn get_active_session(pool: State<'_, DbPool>) -> Result<Option<Session>, AppError> {
+pub async fn get_active_session(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+) -> Result<Option<Session>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     get_active_session_impl(&pool).await
 }
 
 #[tauri::command]
 pub async fn open_session(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     cashier_id: i64,
     opening_cash_millieme: i64,
 ) -> Result<Session, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     open_session_impl(&pool, cashier_id, opening_cash_millieme).await
 }
 
 #[tauri::command]
 pub async fn close_session(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     backup_service: State<'_, BackupService>,
     session_id: i64,
     closing_cash_millieme: i64,
     notes: Option<String>,
 ) -> Result<Session, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     let session = close_session_impl(&pool, session_id, closing_cash_millieme, notes).await?;
 
     if let Err(error) = backup_service.create_backup() {
@@ -195,7 +210,11 @@ pub async fn close_session(
 #[tauri::command]
 pub async fn get_session_sales_total_millieme(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     session_id: i64,
 ) -> Result<i64, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     get_session_sales_total_millieme_impl(&pool, session_id).await
 }

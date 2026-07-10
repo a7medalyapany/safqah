@@ -8,6 +8,7 @@ use crate::{
     models::import::CsvImportReport,
     models::supplier::{CreateSupplierPayload, Supplier, UpdateSupplierPayload},
 };
+use crate::commands::{auth::SessionStore, guard};
 
 #[derive(Debug, serde::Deserialize)]
 struct SupplierCsvRow {
@@ -247,43 +248,73 @@ fn csv_error(message: &str) -> AppError {
 #[tauri::command]
 pub async fn list_suppliers(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     search: Option<String>,
 ) -> Result<Vec<Supplier>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     list_suppliers_impl(&pool, search).await
 }
 
 #[tauri::command]
-pub async fn get_supplier(pool: State<'_, DbPool>, id: i64) -> Result<Supplier, AppError> {
+pub async fn get_supplier(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+    id: i64,
+) -> Result<Supplier, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     get_supplier_by_id(&pool, id).await
 }
 
 #[tauri::command]
 pub async fn create_supplier(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     payload: CreateSupplierPayload,
 ) -> Result<Supplier, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     create_supplier_impl(&pool, payload).await
 }
 
 #[tauri::command]
 pub async fn update_supplier(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     id: i64,
     payload: UpdateSupplierPayload,
 ) -> Result<Supplier, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     update_supplier_impl(&pool, id, payload).await
 }
 
 #[tauri::command]
-pub async fn delete_supplier(pool: State<'_, DbPool>, id: i64) -> Result<bool, AppError> {
+pub async fn delete_supplier(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+    id: i64,
+) -> Result<bool, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     delete_supplier_impl(&pool, id).await
 }
 
 #[tauri::command]
 pub async fn import_suppliers_csv(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     file_path: String,
 ) -> Result<CsvImportReport, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_ONLY).await?;
+
     import_suppliers_csv_impl(&pool, file_path).await
 }
 

@@ -19,6 +19,7 @@ use crate::{
         },
     },
 };
+use crate::commands::{auth::SessionStore, guard};
 
 #[derive(Debug, sqlx::FromRow)]
 struct ActiveItem {
@@ -879,46 +880,72 @@ async fn create_return_impl(
 #[tauri::command]
 pub async fn search_items(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     query: Option<String>,
     category_id: Option<i64>,
 ) -> Result<Vec<Item>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     search_items_impl(&pool, query, category_id).await
 }
 
 #[tauri::command]
 pub async fn list_invoices(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     filters: InvoiceFilters,
 ) -> Result<Vec<InvoiceSummary>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     list_invoices_impl(&pool, filters).await
 }
 
 #[tauri::command]
 pub async fn get_invoice_detail(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     invoice_id: i64,
 ) -> Result<InvoiceDetail, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     fetch_invoice_detail(&pool, invoice_id).await
 }
 
 #[tauri::command]
-pub async fn get_invoice_stats(pool: State<'_, DbPool>) -> Result<InvoiceStats, AppError> {
+pub async fn get_invoice_stats(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+) -> Result<InvoiceStats, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     get_invoice_stats_impl(&pool).await
 }
 
 #[tauri::command]
 pub async fn create_sale_invoice(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     payload: CreateSaleInvoicePayload,
 ) -> Result<Invoice, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     create_sale_invoice_impl(&pool, payload).await
 }
 
 #[tauri::command]
 pub async fn create_return(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     payload: CreateReturnPayload,
 ) -> Result<Return, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     create_return_impl(&pool, payload).await
 }
 
