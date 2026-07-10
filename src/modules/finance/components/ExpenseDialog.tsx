@@ -8,6 +8,13 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { parseAppError } from "@/modules/items/utils";
 import type { ExpenseCategory } from "@/modules/finance/types";
 import { invoke } from "@/shared/utils/invoke";
@@ -77,19 +84,21 @@ export function ExpenseDialog({
             <span className="block text-sm font-medium text-foreground">
               نوع المصروف <span className="text-destructive">*</span>
             </span>
-            <select
-              dir="rtl"
-              className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-              value={categoryId}
-              onChange={(event) => setCategoryId(event.target.value)}
+            <Select
+              value={categoryId || "none"}
+              onValueChange={(value) => setCategoryId(value === "none" ? "" : value)}
             >
-              <option value="">اختر النوع</option>
-              {categories.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name_ar}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger dir="rtl" className="h-9 w-full">
+                <SelectValue placeholder="اختر النوع" />
+              </SelectTrigger>
+              <SelectContent dir="rtl">
+                {categories.map((cat) => (
+                  <SelectItem key={cat.id} value={String(cat.id)}>
+                    {cat.name_ar}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </label>
 
           <label className="space-y-2">

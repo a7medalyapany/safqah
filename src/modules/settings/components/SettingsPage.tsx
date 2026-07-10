@@ -12,6 +12,13 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { parseAppError } from "@/modules/items/utils";
 import { DataImportSection } from "@/modules/settings/DataImportSection";
 import { BackupSection } from "@/modules/settings/BackupSection";
@@ -240,22 +247,25 @@ export default function SettingsPage() {
               <span className="block text-sm font-medium text-foreground">
                 الطابعة الافتراضية
               </span>
-              <select
-                dir="rtl"
-                className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                value={settings.defaultPrinter}
-                onChange={(event) =>
-                  handleSettingChange("defaultPrinter", event.target.value)
+              <Select
+                value={settings.defaultPrinter || "none"}
+                onValueChange={(value) =>
+                  handleSettingChange("defaultPrinter", value === "none" ? "" : value)
                 }
                 disabled={printersQuery.isLoading}
               >
-                <option value="">بدون</option>
-                {printersQuery.data?.map((printer) => (
-                  <option key={printer} value={printer}>
-                    {printer}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger dir="rtl" className="h-10 w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent dir="rtl">
+                  <SelectItem value="none">بدون</SelectItem>
+                  {printersQuery.data?.map((printer) => (
+                    <SelectItem key={printer} value={printer}>
+                      {printer}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </label>
 
             <div className="space-y-3 md:col-span-2">

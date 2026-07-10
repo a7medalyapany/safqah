@@ -6,13 +6,20 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { groupLabels, paymentMethodLabels } from "@/modules/reports/constants";
 import type { BalanceKind, BalanceRow, CustomerProfitRow, DailySalesReport, ExpenseWithCategory, GroupBy, LowStockItem, PaymentMethodRow, PeriodSalesRow, ProfitReport, StockValuationRow, TopItemRow } from "@/modules/reports/types";
 import { egpValue, missingValue, monthStart, printTable, today } from "@/modules/reports/utils";
 import { exportToCsv } from "@/shared/utils/exportCsv";
 import { invoke } from "@/shared/utils/invoke";
-import { formatEGP } from "@/shared/utils/money";
+import { formatEGP, formatPercent } from "@/shared/utils/money";
 import { BalancePaymentDialog } from "./BalancePaymentDialog";
 import { BarChartBox, ChartCard, DataTable, DateRangeFields, FilterField, FilterPanel, HorizontalBarChartBox, KpiCard, PieChartBox, ReportActions, ReportShell, TableCell } from "./ReportPrimitives";
 
@@ -275,16 +282,16 @@ export function TopItemsReportView({ onBack }: { onBack: () => void }) {
           setDateTo={setDateTo}
         />
         <FilterField label="عدد النتائج">
-          <select
-            dir="rtl"
-            className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-            value={limit}
-            onChange={(event) => setLimit(Number(event.target.value))}
-          >
-            <option value={10}>10</option>
-            <option value={20}>20</option>
-            <option value={50}>50</option>
-          </select>
+          <Select value={String(limit)} onValueChange={(value) => setLimit(Number(value))}>
+            <SelectTrigger dir="rtl" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent dir="rtl">
+              <SelectItem value="10">10</SelectItem>
+              <SelectItem value="20">20</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+            </SelectContent>
+          </Select>
         </FilterField>
       </FilterPanel>
 
@@ -368,7 +375,7 @@ export function ProfitReportView({ onBack }: { onBack: () => void }) {
         ["الربح الإجمالي", formatEGP(report.gross_profit_millieme)],
         ["إجمالي المصروفات", formatEGP(report.total_expenses_millieme)],
         ["صافي الربح", formatEGP(report.net_profit_millieme)],
-        ["هامش الربح", `${report.profit_margin_percent.toFixed(2)}%`],
+        ["هامش الربح", formatPercent(report.profit_margin_percent)],
       ]
     : [];
 
@@ -428,7 +435,7 @@ export function ProfitReportView({ onBack }: { onBack: () => void }) {
               {formatEGP(report?.net_profit_millieme ?? 0)}
             </p>
             <p className="mt-3 text-sm text-muted-foreground">
-              هامش الربح: {(report?.profit_margin_percent ?? 0).toFixed(2)}%
+              هامش الربح: {formatPercent(report?.profit_margin_percent ?? 0)}
             </p>
           </div>
           <PieChartBox data={pieData} />
@@ -570,7 +577,7 @@ export function PaymentMethodsReportView({ onBack }: { onBack: () => void }) {
     paymentMethodLabels[row.method] ?? row.method,
     String(row.invoice_count),
     formatEGP(row.total_millieme),
-    `${row.percentage.toFixed(2)}%`,
+    formatPercent(row.percentage),
   ]);
 
   return (
@@ -612,7 +619,7 @@ export function PaymentMethodsReportView({ onBack }: { onBack: () => void }) {
             </TableCell>
             <TableCell>{row.invoice_count}</TableCell>
             <TableCell>{formatEGP(row.total_millieme)}</TableCell>
-            <TableCell>{row.percentage.toFixed(2)}%</TableCell>
+            <TableCell>{formatPercent(row.percentage)}</TableCell>
           </tr>
         ))}
       </DataTable>
@@ -1004,16 +1011,16 @@ export function ItemProfitsReportView({ onBack }: { onBack: () => void }) {
           />
         </FilterField>
         <FilterField label="عدد النتائج">
-          <select
-            dir="rtl"
-            className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-            value={limit}
-            onChange={(event) => setLimit(Number(event.target.value))}
-          >
-            <option value={20}>20</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
-          </select>
+          <Select value={String(limit)} onValueChange={(value) => setLimit(Number(value))}>
+            <SelectTrigger dir="rtl" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent dir="rtl">
+              <SelectItem value="20">20</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+              <SelectItem value="100">100</SelectItem>
+            </SelectContent>
+          </Select>
         </FilterField>
       </FilterPanel>
 

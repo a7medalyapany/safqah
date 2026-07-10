@@ -12,6 +12,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { CategoryManagerDialog } from "@/modules/items/categories";
 import type { Supplier } from "@/modules/parties/types";
 import {
@@ -157,7 +164,7 @@ export default function PurchasesPage() {
       <Card className="border-none bg-transparent p-0 shadow-none ring-0">
         <CardContent className="space-y-4 px-0">
           <div className="grid gap-3 rounded-2xl border bg-card p-4 md:grid-cols-2 xl:grid-cols-[minmax(0,1.2fr)_repeat(4,minmax(0,1fr))]">
-            <div className="flex flex-col items-center justify-center gap-2 sm:flex-row-reverse sm:justify-start">
+            <div className="flex flex-col items-center gap-2 self-end sm:flex-row-reverse sm:justify-start">
               <Button
                 variant="outline"
                 onClick={() => setIsCategoryManagerOpen(true)}
@@ -185,32 +192,35 @@ export default function PurchasesPage() {
               />
             </FilterField>
             <FilterField label="المورد">
-              <select
-                dir="rtl"
-                className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                value={supplierId}
-                onChange={(event) => setSupplierId(event.target.value)}
+              <Select
+                value={supplierId || "all"}
+                onValueChange={(value) => setSupplierId(value === "all" ? "" : value)}
               >
-                <option value="">جميع الموردين</option>
-                {(suppliersQuery.data ?? []).map((supplier) => (
-                  <option key={supplier.id} value={String(supplier.id)}>
-                    {supplier.name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger dir="rtl" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent dir="rtl">
+                  <SelectItem value="all">جميع الموردين</SelectItem>
+                  {(suppliersQuery.data ?? []).map((supplier) => (
+                    <SelectItem key={supplier.id} value={String(supplier.id)}>
+                      {supplier.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </FilterField>
             <FilterField label="الحالة">
-              <select
-                dir="rtl"
-                className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                value={status}
-                onChange={(event) => setStatus(event.target.value)}
-              >
-                <option value="">الكل</option>
-                <option value="paid">مدفوع</option>
-                <option value="deferred">آجل</option>
-                <option value="partial">جزئي</option>
-              </select>
+              <Select value={status || "all"} onValueChange={(value) => setStatus(value === "all" ? "" : value)}>
+                <SelectTrigger dir="rtl" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent dir="rtl">
+                  <SelectItem value="all">الكل</SelectItem>
+                  <SelectItem value="paid">مدفوع</SelectItem>
+                  <SelectItem value="deferred">آجل</SelectItem>
+                  <SelectItem value="partial">جزئي</SelectItem>
+                </SelectContent>
+              </Select>
             </FilterField>
           </div>
 
