@@ -73,11 +73,21 @@ export function TableCell({
 
 export function LoadingItemGrid() {
   return (
-    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {Array.from({ length: 9 }).map((_, index) => (
-        <div key={index} className="space-y-3 rounded-2xl border p-4">
-          <Skeleton className="h-5 w-20" />
-          <Skeleton className="h-6 w-full" />
+    <div>
+      <div className="flex items-center gap-3 border-b border-border bg-muted/80 px-3 py-2.5">
+        <Skeleton className="h-4 flex-1" />
+        <Skeleton className="hidden h-4 w-32 sm:block" />
+        <Skeleton className="h-4 w-24" />
+        <Skeleton className="h-4 w-28" />
+      </div>
+      {Array.from({ length: 10 }).map((_, index) => (
+        <div
+          key={index}
+          className="flex items-center gap-3 border-b border-border/60 px-3 py-3"
+        >
+          <Skeleton className="h-5 flex-1" />
+          <Skeleton className="hidden h-5 w-32 sm:block" />
+          <Skeleton className="h-5 w-24" />
           <Skeleton className="h-5 w-28" />
         </div>
       ))}
