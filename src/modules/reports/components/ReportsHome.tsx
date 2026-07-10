@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ArrowUpLeft, BarChart3, CalendarDays, CreditCard, LineChart as LineChartIcon, PackageSearch, Receipt, TrendingUp, Truck, Users, WalletCards } from "lucide-react";
+import { ArrowUpLeft, BarChart3, Boxes, CalendarDays, Coins, CreditCard, HandCoins, LineChart as LineChartIcon, PackageSearch, Receipt, TrendingUp, Truck, Users, WalletCards } from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import type { ReportView } from "@/modules/reports/types";
@@ -58,6 +58,12 @@ const reportSections: {
         icon: <Receipt />,
       },
       {
+        view: "item-profits",
+        title: "أرباح الأصناف",
+        subtitle: "ربح كل صنف خلال فترة مع البحث بالاسم أو الباركود.",
+        icon: <Coins />,
+      },
+      {
         view: "payments",
         title: "تقرير طرق الدفع",
         subtitle: "نسب التحصيل حسب كاش وفيزا وآجل.",
@@ -68,6 +74,12 @@ const reportSections: {
   {
     title: "تقارير العملاء والموردين",
     cards: [
+      {
+        view: "customer-profits",
+        title: "أرباح العملاء",
+        subtitle: "الربح المحقق من كل عميل مع إمكانية البحث بالاسم أو الهاتف.",
+        icon: <HandCoins />,
+      },
       {
         view: "customers",
         title: "تقرير ديون العملاء",
@@ -85,6 +97,12 @@ const reportSections: {
   {
     title: "تقارير المخزون",
     cards: [
+      {
+        view: "stock-valuation",
+        title: "تقييم المخزون",
+        subtitle: "الأصناف الموجودة وقيمتها بسعر الشراء والبيع والربح المتوقع.",
+        icon: <Boxes />,
+      },
       {
         view: "low-stock",
         title: "تقرير المخزون المنخفض",
