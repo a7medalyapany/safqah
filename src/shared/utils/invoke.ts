@@ -11,6 +11,20 @@ type BackendAppErrorShape = {
 
 const IPC_FAILURE_MESSAGE = "تعذر الاتصال بالنظام — يرجى إعادة تشغيل البرنامج";
 
+const TOKEN_STORAGE_KEY = "safqah.auth.token";
+
+// Every backend command (outside the login/setup flow) verifies the session
+// token and the caller's role — route guards in the UI are convenience only.
+// Injecting the token here keeps call sites unchanged; commands that do not
+// declare a `token` argument simply ignore it.
+function readStoredToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
 type InvokeOptions = {
   toast?: boolean;
 };
@@ -61,7 +75,8 @@ export async function invoke<T>(
   options: InvokeOptions = {},
 ): Promise<T> {
   try {
-    return await tauriInvoke<T>(command, args);
+    const token = readStoredToken();
+    return await tauriInvoke<T>(command, token ? { token, ...args } : args);
   } catch (error: unknown) {
     const appError = normalizeInvokeError(error);
 

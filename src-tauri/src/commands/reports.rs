@@ -3,6 +3,7 @@ use std::time::Instant;
 use tauri::State;
 
 use crate::{commands::util::normalize_optional_string, db::DbPool, errors::AppError};
+use crate::commands::{auth::SessionStore, guard};
 
 #[derive(Debug, serde::Serialize)]
 pub struct DailySalesReport {
@@ -613,8 +614,12 @@ async fn report_stock_valuation_impl(
 #[tauri::command]
 pub async fn report_daily_sales(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     date: Option<String>,
 ) -> Result<DailySalesReport, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     let start = Instant::now();
     let result = report_daily_sales_impl(&pool, date).await;
     log_slow_query("report_daily_sales", start);
@@ -624,10 +629,14 @@ pub async fn report_daily_sales(
 #[tauri::command]
 pub async fn report_sales_by_period(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     date_from: String,
     date_to: String,
     group_by: String,
 ) -> Result<Vec<PeriodSalesRow>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     let start = Instant::now();
     let result = report_sales_by_period_impl(&pool, date_from, date_to, group_by).await;
     log_slow_query("report_sales_by_period", start);
@@ -637,10 +646,14 @@ pub async fn report_sales_by_period(
 #[tauri::command]
 pub async fn report_top_items(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     date_from: Option<String>,
     date_to: Option<String>,
     limit: Option<i64>,
 ) -> Result<Vec<TopItemRow>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     let start = Instant::now();
     let result = report_top_items_impl(&pool, date_from, date_to, limit).await;
     log_slow_query("report_top_items", start);
@@ -650,8 +663,12 @@ pub async fn report_top_items(
 #[tauri::command]
 pub async fn report_low_stock(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     threshold: Option<i64>,
 ) -> Result<Vec<LowStockItem>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     let start = Instant::now();
     let result = report_low_stock_impl(&pool, threshold).await;
     log_slow_query("report_low_stock", start);
@@ -661,9 +678,13 @@ pub async fn report_low_stock(
 #[tauri::command]
 pub async fn report_profit_analysis(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     date_from: String,
     date_to: String,
 ) -> Result<ProfitReport, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     let start = Instant::now();
     let result = report_profit_analysis_impl(&pool, date_from, date_to).await;
     log_slow_query("report_profit_analysis", start);
@@ -673,9 +694,13 @@ pub async fn report_profit_analysis(
 #[tauri::command]
 pub async fn report_payment_methods(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     date_from: Option<String>,
     date_to: Option<String>,
 ) -> Result<Vec<PaymentMethodRow>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     let start = Instant::now();
     let result = report_payment_methods_impl(&pool, date_from, date_to).await;
     log_slow_query("report_payment_methods", start);
@@ -685,7 +710,11 @@ pub async fn report_payment_methods(
 #[tauri::command]
 pub async fn report_customer_balances(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
 ) -> Result<Vec<CustomerBalanceRow>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     let start = Instant::now();
     let result = report_customer_balances_impl(&pool).await;
     log_slow_query("report_customer_balances", start);
@@ -695,7 +724,11 @@ pub async fn report_customer_balances(
 #[tauri::command]
 pub async fn report_supplier_balances(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
 ) -> Result<Vec<SupplierBalanceRow>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     let start = Instant::now();
     let result = report_supplier_balances_impl(&pool).await;
     log_slow_query("report_supplier_balances", start);
@@ -705,10 +738,14 @@ pub async fn report_supplier_balances(
 #[tauri::command]
 pub async fn report_customer_profits(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     date_from: Option<String>,
     date_to: Option<String>,
     search: Option<String>,
 ) -> Result<Vec<CustomerProfitRow>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     let start = Instant::now();
     let result = report_customer_profits_impl(&pool, date_from, date_to, search).await;
     log_slow_query("report_customer_profits", start);
@@ -718,11 +755,15 @@ pub async fn report_customer_profits(
 #[tauri::command]
 pub async fn report_item_profits(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     date_from: Option<String>,
     date_to: Option<String>,
     search: Option<String>,
     limit: Option<i64>,
 ) -> Result<Vec<TopItemRow>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     let start = Instant::now();
     let result = report_item_profits_impl(&pool, date_from, date_to, search, limit).await;
     log_slow_query("report_item_profits", start);
@@ -732,8 +773,12 @@ pub async fn report_item_profits(
 #[tauri::command]
 pub async fn report_stock_valuation(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     search: Option<String>,
 ) -> Result<Vec<StockValuationRow>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     let start = Instant::now();
     let result = report_stock_valuation_impl(&pool, search).await;
     log_slow_query("report_stock_valuation", start);

@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod backup;
 pub mod customers;
+pub mod guard;
 pub mod finance;
 pub mod inventory;
 pub mod items;

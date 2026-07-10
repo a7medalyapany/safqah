@@ -225,13 +225,34 @@ employee access), not external (network attackers).
 - All file access via Tauri's scoped filesystem plugin
 - No telemetry, no analytics, no external requests
 
+### Backend Authorization
+
+Every Tauri command (outside the login/first-launch setup flow) enforces
+authentication and role in Rust — see `docs/005-backend-authorization.md`.
+
+- `login` issues a random session token held in Rust-managed memory
+  (`SessionStore`); the frontend persists it and `invoke()` injects it into
+  every IPC call automatically.
+- `commands/guard.rs::require_role` resolves token → active user → role and
+  rejects with `UNAUTHENTICATED` / `FORBIDDEN`. Deactivated users have their
+  tokens evicted on first use.
+- The role matrix mirrors the frontend `featurePermissions` map: admin-only
+  (users, settings writes, backups, CSV imports), admin+accountant (purchases,
+  finance, full reports), admin+cashier (item/stock writes), any authenticated
+  user (POS, sales, reads, printing). Frontend route guards are UX only.
+- `complete_setup` / `seed_sample_data` run pre-auth but self-disable once
+  setup completes (`SETUP_ALREADY_COMPLETE`).
+
 ## Backup Strategy
 
 `backup.rs` runs as a Tokio background task:
 1. On session close → immediate backup
 2. Every 4 hours while app is open → automatic backup
 3. Keeps last 7 backups, deletes older ones
-4. Backup = file copy of `pos.db` to `{appdata}/pos/backups/pos_YYYYMMDD_HHMM.db`
-5. Restore = file copy back + app restart (Tauri restart command)
+4. Backup = `PRAGMA wal_checkpoint(TRUNCATE)` then file copy of `pos.db` to
+   `{appdata}/pos/backups/pos_YYYYMMDD_HHMM.db` — the checkpoint flushes
+   committed transactions out of `pos.db-wal` so the copy is complete
+5. Restore = close the sqlx pool (checkpoints and releases the WAL), copy the
+   backup over `pos.db`, delete stale `-wal`/`-shm` sidecars, app restart
 
 The user can also trigger manual backup from Settings and see the backup list.

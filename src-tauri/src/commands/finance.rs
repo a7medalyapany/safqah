@@ -9,6 +9,7 @@ use crate::{
     },
     models::sale::InvoiceRow,
 };
+use crate::commands::{auth::SessionStore, guard};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -562,61 +563,85 @@ async fn record_invoice_payment_impl(
 #[tauri::command]
 pub async fn create_expense(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     amount_millieme: i64,
     category_id: Option<i64>,
     description: Option<String>,
     session_id: Option<i64>,
 ) -> Result<Expense, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     create_expense_impl(&pool, amount_millieme, category_id, description, session_id).await
 }
 
 #[tauri::command]
 pub async fn list_expenses(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     date_from: Option<String>,
     date_to: Option<String>,
     category_id: Option<i64>,
 ) -> Result<Vec<ExpenseWithCategory>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     list_expenses_impl(&pool, date_from, date_to, category_id).await
 }
 
 #[tauri::command]
 pub async fn list_expense_categories(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
 ) -> Result<Vec<ExpenseCategory>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     list_expense_categories_impl(&pool).await
 }
 
 #[tauri::command]
 pub async fn get_cash_summary(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     session_id: Option<i64>,
     date_from: Option<String>,
     date_to: Option<String>,
 ) -> Result<CashSummary, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     get_cash_summary_impl(&pool, session_id, date_from, date_to).await
 }
 
 #[tauri::command]
 pub async fn list_payments(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     direction: Option<String>,
     entity_type: Option<String>,
     date_from: Option<String>,
     date_to: Option<String>,
 ) -> Result<Vec<PaymentWithEntity>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     list_payments_impl(&pool, direction, entity_type, date_from, date_to).await
 }
 
 #[tauri::command]
 pub async fn record_customer_payment(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     customer_id: i64,
     amount_millieme: i64,
     method: String,
     notes: Option<String>,
     session_id: Option<i64>,
 ) -> Result<Payment, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     record_customer_payment_impl(&pool, customer_id, amount_millieme, method, notes, session_id)
         .await
 }
@@ -624,12 +649,16 @@ pub async fn record_customer_payment(
 #[tauri::command]
 pub async fn record_supplier_payment(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     supplier_id: i64,
     amount_millieme: i64,
     method: String,
     notes: Option<String>,
     session_id: Option<i64>,
 ) -> Result<Payment, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     record_supplier_payment_impl(&pool, supplier_id, amount_millieme, method, notes, session_id)
         .await
 }
@@ -637,26 +666,38 @@ pub async fn record_supplier_payment(
 #[tauri::command]
 pub async fn get_customer_ledger(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     customer_id: i64,
 ) -> Result<CustomerLedger, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     get_customer_ledger_impl(&pool, customer_id).await
 }
 
 #[tauri::command]
 pub async fn get_all_deferred_invoices(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
 ) -> Result<Vec<DeferredInvoiceSummary>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_ACCOUNTANT).await?;
+
     get_all_deferred_invoices_impl(&pool).await
 }
 
 #[tauri::command]
 pub async fn record_invoice_payment(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     invoice_id: i64,
     amount_millieme: i64,
     method: String,
     session_id: Option<i64>,
 ) -> Result<InvoiceRow, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     record_invoice_payment_impl(&pool, invoice_id, amount_millieme, method, session_id).await
 }
 

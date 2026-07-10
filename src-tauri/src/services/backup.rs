@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use chrono::Local;
 use serde::Serialize;
 
-use crate::errors::AppError;
+use crate::{db::DbPool, errors::AppError};
 
 #[derive(Clone, Debug)]
 pub struct BackupService {
@@ -27,13 +27,29 @@ impl BackupService {
         let app_dir = data_dir.join("pos");
         let backup_dir = app_dir.join("backups");
 
-        fs::create_dir_all(&backup_dir).expect("Unable to create backup directory");
+        // Best effort here; create_backup retries and reports a proper error.
+        if let Err(error) = fs::create_dir_all(&backup_dir) {
+            eprintln!("Unable to create backup directory: {error}");
+        }
 
         Self {
             db_path: app_dir.join("pos.db"),
             backup_dir,
             max_backups: 7,
         }
+    }
+
+    /// Flush the WAL into pos.db, then copy the file.
+    ///
+    /// Without the checkpoint, transactions committed since the last
+    /// checkpoint live only in pos.db-wal and would be silently missing
+    /// from the backup.
+    pub async fn create_backup_with_checkpoint(&self, pool: &DbPool) -> Result<PathBuf, AppError> {
+        sqlx::query("PRAGMA wal_checkpoint(TRUNCATE);")
+            .execute(pool)
+            .await?;
+
+        self.create_backup()
     }
 
     pub fn create_backup(&self) -> Result<PathBuf, AppError> {
@@ -44,6 +60,14 @@ impl BackupService {
                 "Database file not found",
             ));
         }
+
+        fs::create_dir_all(&self.backup_dir).map_err(|error| {
+            AppError::new(
+                "BACKUP_FAILED",
+                "فشل إنشاء النسخة الاحتياطية",
+                &format!("Failed to create backup directory: {error}"),
+            )
+        })?;
 
         let filename = format!("pos_{}.db", Local::now().format("%Y%m%d_%H%M%S"));
         let backup_path = self.backup_dir.join(filename);
@@ -132,6 +156,14 @@ impl BackupService {
             )
         })?;
 
+        // A leftover WAL/SHM pair from the replaced database would be
+        // replayed on top of the restored file and corrupt it.
+        for suffix in ["-wal", "-shm"] {
+            let mut sidecar = self.db_path.as_os_str().to_owned();
+            sidecar.push(suffix);
+            let _ = fs::remove_file(PathBuf::from(sidecar));
+        }
+
         Ok(())
     }
 
@@ -202,6 +234,7 @@ impl BackupService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
     use std::fs;
     use std::io::Write;
 
@@ -298,5 +331,73 @@ mod tests {
         let safety_backups = service.list_backups();
         assert!(safety_backups.len() >= 2);
         assert!(backup_dir.exists());
+    }
+
+    #[tokio::test]
+    async fn checkpoint_backup_captures_wal_resident_rows() {
+        let (service, db_path) = prepare_service();
+        fs::create_dir_all(db_path.parent().unwrap()).unwrap();
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&format!("sqlite://{}?mode=rwc", db_path.display()))
+            .await
+            .expect("test db should open");
+
+        sqlx::query("PRAGMA journal_mode=WAL;")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE t (v INTEGER);").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO t (v) VALUES (1), (2), (3);")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // The committed rows must still be sitting in the WAL, not the main
+        // file — otherwise this test can't distinguish the fixed path from
+        // the old plain-copy behavior.
+        let wal_path = PathBuf::from(format!("{}-wal", db_path.display()));
+        let wal_size = fs::metadata(&wal_path).map(|m| m.len()).unwrap_or(0);
+        assert!(wal_size > 0, "expected pending WAL contents before backup");
+
+        let backup_path = service
+            .create_backup_with_checkpoint(&pool)
+            .await
+            .expect("checkpoint backup should succeed");
+
+        let backup_pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&format!("sqlite://{}?mode=ro", backup_path.display()))
+            .await
+            .expect("backup db should open");
+
+        let (count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM t")
+            .fetch_one(&backup_pool)
+            .await
+            .expect("backup should contain the table");
+
+        assert_eq!(count, 3, "backup must contain rows committed to the WAL");
+    }
+
+    #[test]
+    fn restore_backup_removes_stale_wal_sidecars() {
+        let (service, db_path) = prepare_service();
+        let backup_dir = service.backup_dir.clone();
+
+        write_file(&db_path, "current-db");
+        write_file(&PathBuf::from(format!("{}-wal", db_path.display())), "stale-wal");
+        write_file(&PathBuf::from(format!("{}-shm", db_path.display())), "stale-shm");
+
+        let restore_source = backup_dir.join("pos_20260101_020202.db");
+        write_file(&restore_source, "restored-db");
+
+        service
+            .restore_backup(restore_source)
+            .expect("restore should succeed");
+
+        assert_eq!(fs::read_to_string(&db_path).unwrap(), "restored-db");
+        assert!(!PathBuf::from(format!("{}-wal", db_path.display())).exists());
+        assert!(!PathBuf::from(format!("{}-shm", db_path.display())).exists());
     }
 }
