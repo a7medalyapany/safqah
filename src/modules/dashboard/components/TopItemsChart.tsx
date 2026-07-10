@@ -10,7 +10,7 @@ import {
 
 import { EmptyState } from "@/modules/dashboard/components/DashboardStates";
 import type { TopItemRow } from "@/modules/dashboard/types";
-import { formatEGP } from "@/shared/utils/money";
+import { formatAxisNumber, formatEGP } from "@/shared/utils/money";
 
 type ChartMouseState = {
   isTooltipActive?: boolean;
@@ -65,7 +65,12 @@ export function TopItemsChart({ data }: { data: TopItemRow[] }) {
             onMouseLeave={() => setActiveItem(null)}
           >
             <CartesianGrid strokeDasharray="3 3" horizontal={false} />
-            <XAxis type="number" tickLine={false} axisLine={false} />
+            <XAxis
+              type="number"
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={formatAxisNumber}
+            />
             <YAxis
               type="category"
               dataKey="name_ar"

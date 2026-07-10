@@ -75,6 +75,7 @@ pub struct InvoiceFilters {
     pub date_to: Option<String>,
     pub customer_id: Option<i64>,
     pub customer_search: Option<String>,
+    pub invoice_search: Option<String>,
     pub status: Option<String>,
     pub payment_method: Option<String>,
     pub limit: Option<i64>,

@@ -14,6 +14,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { parseAppError } from "@/modules/items/utils";
 import { SectionCard } from "@/shared/components/SectionCard";
 import { cn } from "@/lib/utils";
@@ -365,18 +372,19 @@ function UserFormDialog({
               <span className="block text-sm font-medium text-foreground">
                 الدور *
               </span>
-              <select
-                dir="rtl"
-                className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 py-1 text-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+              <Select
                 value={values.role}
-                onChange={(event) =>
-                  handleChange("role", event.target.value as Role)
-                }
+                onValueChange={(value) => handleChange("role", value as Role)}
               >
-                <option value="admin">مدير</option>
-                <option value="cashier">كاشير</option>
-                <option value="accountant">محاسب</option>
-              </select>
+                <SelectTrigger dir="rtl" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent dir="rtl">
+                  <SelectItem value="admin">مدير</SelectItem>
+                  <SelectItem value="cashier">كاشير</SelectItem>
+                  <SelectItem value="accountant">محاسب</SelectItem>
+                </SelectContent>
+              </Select>
             </label>
           </div>
 

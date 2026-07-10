@@ -9,6 +9,7 @@ export function buildFilters(params: {
   dateFrom: string;
   dateTo: string;
   customerSearch: string;
+  invoiceSearch: string;
   status: string;
   paymentMethod: string;
   limit: number;
@@ -18,6 +19,7 @@ export function buildFilters(params: {
     dateFrom: params.dateFrom || null,
     dateTo: params.dateTo || null,
     customerSearch: params.customerSearch.trim() || null,
+    invoiceSearch: params.invoiceSearch.trim() || null,
     status: params.status || null,
     paymentMethod: params.paymentMethod || null,
     limit: params.limit,
@@ -51,4 +53,26 @@ export function getReturnableQty(
   item: Pick<InvoiceItemDetail, "qty" | "returned_qty">,
 ) {
   return Math.max(item.qty - item.returned_qty, 0);
+}
+
+/**
+ * Refund owed for returning `returnedQty` units of an invoice line, based on
+ * what the customer actually paid. The line total is already net of the
+ * per-line discount; scaling by `invoiceTotal / invoiceSubtotal` prorates the
+ * invoice-level (global) discount and tax too. Prorated for partial returns;
+ * mirrors the backend's return_line_refund_millieme.
+ */
+export function getReturnLineRefundMillieme(
+  item: Pick<InvoiceItemDetail, "qty" | "total_millieme">,
+  returnedQty: number,
+  invoiceSubtotalMillieme: number,
+  invoiceTotalMillieme: number,
+) {
+  if (item.qty <= 0) {
+    return 0;
+  }
+  const denominator = item.qty * Math.max(invoiceSubtotalMillieme, 1);
+  return Math.round(
+    (item.total_millieme * returnedQty * invoiceTotalMillieme) / denominator,
+  );
 }

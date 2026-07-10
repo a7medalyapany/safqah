@@ -21,7 +21,7 @@ function SheetOverlay({
     <DialogPrimitive.Overlay
       data-slot="sheet-overlay"
       className={cn(
-        "fixed inset-0 z-50 bg-black/15 duration-100 data-closed:animate-out data-closed:fade-out-0 data-open:animate-in data-open:fade-in-0",
+        "fixed inset-0 z-50 bg-black/15 duration-100 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0",
         className,
       )}
       {...props}
@@ -43,7 +43,7 @@ function SheetContent({
       <DialogPrimitive.Content
         data-slot="sheet-content"
         className={cn(
-          "fixed inset-y-0 right-0 z-50 flex h-full w-full max-w-xl flex-col gap-4 overflow-y-auto bg-popover p-5 text-popover-foreground shadow-lg outline-none duration-200 data-closed:slide-out-to-right data-open:slide-in-from-right sm:w-[520px]",
+          "fixed inset-y-0 right-0 z-50 flex h-full w-full max-w-xl flex-col gap-4 overflow-y-auto bg-popover p-5 text-popover-foreground shadow-lg outline-none duration-200 data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:w-[520px]",
           className,
         )}
         {...props}

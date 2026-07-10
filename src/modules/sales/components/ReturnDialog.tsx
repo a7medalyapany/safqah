@@ -12,13 +12,23 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useCreateReturnMutation } from "@/modules/sales/hooks";
 import type {
   InvoiceDetail,
   InvoiceItemDetail,
   RefundMethod,
 } from "@/modules/sales/types";
-import { getReturnableQty } from "@/modules/sales/utils";
+import {
+  getReturnableQty,
+  getReturnLineRefundMillieme,
+} from "@/modules/sales/utils";
 import { parseAppError } from "@/modules/items/utils";
 import { FilterField } from "@/shared/components/FilterField";
 import { TableCell, TableHeadCell } from "@/shared/components/DataTable";
@@ -64,7 +74,13 @@ export function ReturnDialog({
   const selectedItems = returnableItems.filter((item) => selected[item.id]);
   const selectedTotal = selectedItems.reduce(
     (total, item) =>
-      total + item.unit_price_millieme * (quantities[item.id] ?? 0),
+      total +
+      getReturnLineRefundMillieme(
+        item,
+        quantities[item.id] ?? 0,
+        invoice.subtotal_millieme,
+        invoice.total_millieme,
+      ),
     0,
   );
 
@@ -199,7 +215,12 @@ export function ReturnDialog({
                       <TableCell>{quantities[item.id] ?? 1}</TableCell>
                       <TableCell>
                         {formatEGP(
-                          item.unit_price_millieme * (quantities[item.id] ?? 1),
+                          getReturnLineRefundMillieme(
+                            item,
+                            quantities[item.id] ?? 1,
+                            invoice.subtotal_millieme,
+                            invoice.total_millieme,
+                          ),
                         )}
                       </TableCell>
                     </tr>
@@ -215,25 +236,26 @@ export function ReturnDialog({
                 className="text-base font-semibold"
               />
               <FilterField label="طريقة رد المبلغ">
-                <select
-                  dir="rtl"
-                  className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+                <Select
                   value={refundMethod}
-                  onChange={(event) =>
-                    setRefundMethod(event.target.value as RefundMethod)
-                  }
+                  onValueChange={(value) => setRefundMethod(value as RefundMethod)}
                 >
-                  <option value="cash">نقدي</option>
-                  <option value="credit" disabled={!invoice.customer_id}>
-                    رصيد للعميل
-                  </option>
-                </select>
+                  <SelectTrigger dir="rtl" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent dir="rtl">
+                    <SelectItem value="cash">نقدي</SelectItem>
+                    <SelectItem value="credit" disabled={!invoice.customer_id}>
+                      رصيد للعميل
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
               </FilterField>
             </div>
           </div>
         )}
 
-        <DialogFooter>
+        <DialogFooter className="flex-row-reverse justify-start gap-2 bg-transparent p-0 pt-2">
           {step === 2 ? (
             <Button
               variant="outline"

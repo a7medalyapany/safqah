@@ -4,6 +4,13 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { invoke } from "@/shared/utils/invoke";
 import { listPrinters } from "@/modules/settings/api";
 
@@ -186,18 +193,22 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 <label className="block text-sm font-medium mb-1 text-right">
                   الطابعة الافتراضية
                 </label>
-                <select
-                  className="w-full rounded-md border px-3 py-2"
-                  value={selectedPrinter}
-                  onChange={(e) => setSelectedPrinter(e.target.value)}
+                <Select
+                  value={selectedPrinter || "none"}
+                  onValueChange={(value) => setSelectedPrinter(value === "none" ? "" : value)}
                 >
-                  <option value="">-- بدون طابعة الآن --</option>
-                  {printers.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger dir="rtl" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent dir="rtl">
+                    <SelectItem value="none">-- بدون طابعة الآن --</SelectItem>
+                    {printers.map((p) => (
+                      <SelectItem key={p} value={p}>
+                        {p}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="w-full flex gap-4 mt-2">

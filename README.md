@@ -104,6 +104,7 @@ Backups are simple copies of a single database file (`pos.db`), making disaster 
 - Receipt printing
 - PDF invoice generation
 - WhatsApp invoice sharing
+- Invoice search by number or product
 
 ### Inventory - إدارة المخزون
 
@@ -151,6 +152,8 @@ Backups are simple copies of a single database file (`pos.db`), making disaster 
 - Payment method distribution
 - Customer balance reports
 - Supplier balance reports
+- Item profit reports
+- Stock valuation reports
 - Low-stock reports
 - CSV export
 - Printable reports
@@ -237,6 +240,8 @@ Historical inventory activity is never overwritten.
 ### Secure Authentication
 
 User passwords are hashed using Argon2 before storage.
+
+Role-based permissions are enforced in the Rust backend on every command, not just hidden in the UI.
 
 ### Portable Recovery
 

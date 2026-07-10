@@ -29,6 +29,28 @@ const featurePermissions: Record<string, Role[]> = {
   inventory: ["admin", "cashier"],
 };
 
+const TOKEN_STORAGE_KEY = "safqah.auth.token";
+
+function readStoredToken(): string | null {
+  try {
+    return localStorage.getItem(TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function persistToken(token: string | null) {
+  try {
+    if (token) {
+      localStorage.setItem(TOKEN_STORAGE_KEY, token);
+    } else {
+      localStorage.removeItem(TOKEN_STORAGE_KEY);
+    }
+  } catch {
+    // Storage may be unavailable; the session simply won't survive a reload.
+  }
+}
+
 type AuthState = {
   user: User | null;
   token: string | null;
@@ -45,10 +67,26 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   token: null,
   isAuthenticated: false,
   async bootstrap() {
-    const user = await invoke<User | null>("get_current_user");
+    const token = readStoredToken();
 
-    if (user) {
-      set({ user, token: null, isAuthenticated: true });
+    if (!token) {
+      return;
+    }
+
+    try {
+      const user = await invoke<User | null>(
+        "get_current_user",
+        { token },
+        { toast: false },
+      );
+
+      if (user) {
+        set({ user, token, isAuthenticated: true });
+      } else {
+        persistToken(null);
+      }
+    } catch {
+      persistToken(null);
     }
   },
   async login(username, password) {
@@ -61,6 +99,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       { toast: false },
     );
 
+    persistToken(response.token);
     set({
       user: response.user,
       token: response.token,
@@ -68,7 +107,9 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     });
   },
   logout() {
-    void invoke("logout", undefined, { toast: false });
+    const { token } = get();
+    void invoke("logout", { token: token ?? "" }, { toast: false });
+    persistToken(null);
     set({ user: null, token: null, isAuthenticated: false });
   },
   hasRole(role) {

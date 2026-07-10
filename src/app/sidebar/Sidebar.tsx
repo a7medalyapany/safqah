@@ -79,14 +79,12 @@ export function Sidebar() {
             end={end}
             className={({ isActive }) =>
               cn(
-                "flex items-center justify-between rounded-xl border px-4 py-3 text-sm font-medium transition-colors",
+                "relative flex items-center justify-between rounded-xl border px-4 py-3 text-sm font-medium transition-colors",
                 primary
-                  ? "border-sidebar-primary/25 text-sidebar-primary hover:bg-sidebar-primary/8"
+                  ? "border-transparent text-sidebar-primary hover:bg-sidebar-primary/8"
                   : "border-transparent text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
                 isActive &&
-                  (primary
-                    ? "border-sidebar-primary bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary"
-                    : "border-sidebar-border bg-sidebar-accent text-sidebar-accent-foreground"),
+                  "border-sidebar-border bg-sidebar-accent font-semibold text-sidebar-accent-foreground shadow-sm before:absolute before:inset-y-2 before:right-0 before:w-1 before:rounded-full before:bg-sidebar-primary",
               )
             }
           >

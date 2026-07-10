@@ -1,4 +1,6 @@
-export const POS_STALE_TIME_MS = 5 * 60 * 1000;
+// Keep the POS catalog fresh: short stale window so reopening the page or
+// refocusing the app pulls the latest prices/stock without an app reload.
+export const POS_STALE_TIME_MS = 10 * 1000;
 
 export const posKeys = {
   categories: ["categories"] as const,

@@ -6,6 +6,13 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -294,18 +301,22 @@ export function PrintBarcodeDialog({
 
               <ControlCard title="الطابعة">
                 <div className="space-y-2">
-                  <select
-                    className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                    value={selectedPrinter}
-                    onChange={(event) => setSelectedPrinter(event.target.value)}
+                  <Select
+                    value={selectedPrinter || "default"}
+                    onValueChange={(value) => setSelectedPrinter(value === "default" ? "" : value)}
                   >
-                    <option value="">استخدام الطابعة الافتراضية</option>
-                    {printerOptions.map((printer) => (
-                      <option key={printer} value={printer}>
-                        {printer}
-                      </option>
-                    ))}
-                  </select>
+                    <SelectTrigger dir="rtl" className="h-10 w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent dir="rtl">
+                      <SelectItem value="default">استخدام الطابعة الافتراضية</SelectItem>
+                      {printerOptions.map((printer) => (
+                        <SelectItem key={printer} value={printer}>
+                          {printer}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   <p className="text-xs text-muted-foreground">
                     سيتم حفظ الاختيار كطابعة الملصقات المستخدمة لاحقاً.
                   </p>

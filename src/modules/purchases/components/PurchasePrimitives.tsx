@@ -117,18 +117,5 @@ export function LoadingRows({ columns }: { columns: number }) {
   ));
 }
 
-export function TableHead({ children }: { children?: ReactNode }) {
-  return <th className="px-4 py-3 text-right font-medium">{children}</th>;
-}
-
-export function TableCell({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <td className={`px-4 py-3 align-middle ${className ?? ""}`}>{children}</td>
-  );
-}
+// Re-exported from the shared table primitives (single source of truth).
+export { TableCell, TableHeadCell as TableHead } from "@/shared/components/DataTable";

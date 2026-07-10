@@ -5,11 +5,14 @@ export type ReportView =
   | "period-month"
   | "top-items"
   | "profit"
+  | "customer-profits"
+  | "item-profits"
   | "expenses"
   | "payments"
   | "customers"
   | "suppliers"
-  | "low-stock";
+  | "low-stock"
+  | "stock-valuation";
 
 export type GroupBy = "day" | "week" | "month";
 export type BalanceKind = "customer" | "supplier";
@@ -68,6 +71,28 @@ export type BalanceRow = {
   balance_millieme: number;
   deferred_invoice_count: number;
   oldest_invoice_date: string | null;
+};
+
+export type CustomerProfitRow = {
+  customer_id: number;
+  name: string;
+  phone: string | null;
+  invoice_count: number;
+  total_revenue_millieme: number;
+  total_cost_millieme: number;
+  gross_profit_millieme: number;
+};
+
+export type StockValuationRow = {
+  item_id: number;
+  name_ar: string;
+  barcode: string | null;
+  current_stock: number;
+  buy_price_millieme: number;
+  sell_price_millieme: number;
+  cost_value_millieme: number;
+  retail_value_millieme: number;
+  potential_profit_millieme: number;
 };
 
 export type LowStockItem = {

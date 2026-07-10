@@ -2,15 +2,8 @@ import { toast } from "sonner";
 
 import { printReport } from "@/shared/utils/printReport";
 
-export function today() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-export function monthStart() {
-  const date = new Date();
-  date.setDate(1);
-  return date.toISOString().slice(0, 10);
-}
+// Re-exported from the shared date utilities (single source of truth, local-date based).
+export { today, monthStart } from "@/shared/utils/date";
 
 export function egpValue(millieme: number) {
   return Math.round((millieme / 1000) * 100) / 100;

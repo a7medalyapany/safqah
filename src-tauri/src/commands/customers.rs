@@ -2,11 +2,13 @@ use sqlx::{QueryBuilder, Sqlite};
 use tauri::State;
 
 use crate::{
+    commands::util::normalize_optional_string,
     db::DbPool,
     errors::AppError,
     models::import::CsvImportReport,
     models::customer::{CreateCustomerPayload, Customer, UpdateCustomerPayload},
 };
+use crate::commands::{auth::SessionStore, guard};
 
 #[derive(Debug, serde::Deserialize)]
 struct CustomerCsvRow {
@@ -16,17 +18,6 @@ struct CustomerCsvRow {
     balance_millieme: Option<String>,
     credit_limit_millieme: Option<String>,
     notes: Option<String>,
-}
-
-fn normalize_optional_string(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        let trimmed = value.trim().to_owned();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        }
-    })
 }
 
 fn validate_name(value: &str) -> Result<String, AppError> {
@@ -262,43 +253,73 @@ fn csv_error(entity_ar: &str, message: &str) -> AppError {
 #[tauri::command]
 pub async fn list_customers(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     search: Option<String>,
 ) -> Result<Vec<Customer>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     list_customers_impl(&pool, search).await
 }
 
 #[tauri::command]
-pub async fn get_customer(pool: State<'_, DbPool>, id: i64) -> Result<Customer, AppError> {
+pub async fn get_customer(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+    id: i64,
+) -> Result<Customer, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     get_customer_by_id(&pool, id).await
 }
 
 #[tauri::command]
 pub async fn create_customer(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     payload: CreateCustomerPayload,
 ) -> Result<Customer, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     create_customer_impl(&pool, payload).await
 }
 
 #[tauri::command]
 pub async fn update_customer(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     id: i64,
     payload: UpdateCustomerPayload,
 ) -> Result<Customer, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     update_customer_impl(&pool, id, payload).await
 }
 
 #[tauri::command]
-pub async fn delete_customer(pool: State<'_, DbPool>, id: i64) -> Result<bool, AppError> {
+pub async fn delete_customer(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+    id: i64,
+) -> Result<bool, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     delete_customer_impl(&pool, id).await
 }
 
 #[tauri::command]
 pub async fn import_customers_csv(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     file_path: String,
 ) -> Result<CsvImportReport, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_ONLY).await?;
+
     import_customers_csv_impl(&pool, file_path).await
 }
 

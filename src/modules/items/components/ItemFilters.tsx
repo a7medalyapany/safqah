@@ -2,6 +2,13 @@ import type { ReactNode } from "react";
 import { Search } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { Category } from "@/modules/items/types";
 
 export function ItemFilters({
@@ -32,19 +39,22 @@ export function ItemFilters({
         />
       </div>
 
-      <select
-        dir="rtl"
-        className="h-10 min-w-48 rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-        value={categoryId}
-        onChange={(event) => onCategoryChange(event.target.value)}
+      <Select
+        value={categoryId || "all"}
+        onValueChange={(value) => onCategoryChange(value === "all" ? "" : value)}
       >
-        <option value="">جميع التصنيفات</option>
-        {categories.map((category) => (
-          <option key={category.id} value={String(category.id)}>
-            {category.name_ar}
-          </option>
-        ))}
-      </select>
+        <SelectTrigger dir="rtl" className="h-10 min-w-48">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent dir="rtl">
+          <SelectItem value="all">جميع التصنيفات</SelectItem>
+          {categories.map((category) => (
+            <SelectItem key={category.id} value={String(category.id)}>
+              {category.name_ar}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
 
       {actions ? (
         <div className="flex shrink-0 flex-col gap-2 sm:flex-row-reverse">

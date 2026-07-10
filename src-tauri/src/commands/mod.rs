@@ -1,6 +1,7 @@
 pub mod auth;
 pub mod backup;
 pub mod customers;
+pub mod guard;
 pub mod finance;
 pub mod inventory;
 pub mod items;
@@ -11,6 +12,7 @@ pub mod settings;
 pub mod sessions;
 pub mod suppliers;
 pub mod sales;
+pub mod util;
 
 use serde_json::Value;
 

@@ -26,6 +26,13 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { Category, Item } from "@/modules/items/types";
 import { parseAppError } from "@/modules/items/utils";
@@ -381,24 +388,24 @@ export const BulkBarcodePrintSection = forwardRef<HTMLDivElement, {}>(
                       />
                     </div>
 
-                    <select
-                      dir="rtl"
-                      className="h-8 min-w-52 rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                      value={selectedCategory?.toString() ?? ""}
-                      onChange={(event) => {
-                        const nextValue = event.target.value;
-                        setSelectedCategory(
-                          nextValue ? Number(nextValue) : null,
-                        );
-                      }}
+                    <Select
+                      value={selectedCategory?.toString() ?? "all"}
+                      onValueChange={(value) =>
+                        setSelectedCategory(value === "all" ? null : Number(value))
+                      }
                     >
-                      <option value="">جميع التصنيفات</option>
-                      {categories.map((category) => (
-                        <option key={category.id} value={category.id}>
-                          {category.name_ar}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger dir="rtl" className="min-w-52">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent dir="rtl">
+                        <SelectItem value="all">جميع التصنيفات</SelectItem>
+                        {categories.map((category) => (
+                          <SelectItem key={category.id} value={String(category.id)}>
+                            {category.name_ar}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
                   <div className="flex flex-wrap gap-2 lg:justify-start">
@@ -645,24 +652,27 @@ export const BulkBarcodePrintSection = forwardRef<HTMLDivElement, {}>(
                   </SettingsCard>
 
                   <SettingsCard title="الطابعة">
-                    <select
-                      dir="rtl"
-                      className="h-10 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                      value={globalSettings.printer}
-                      onChange={(event) =>
+                    <Select
+                      value={globalSettings.printer || "default"}
+                      onValueChange={(value) =>
                         setGlobalSettings((current) => ({
                           ...current,
-                          printer: event.target.value,
+                          printer: value === "default" ? "" : value,
                         }))
                       }
                     >
-                      <option value="">استخدام الطابعة الافتراضية</option>
-                      {printerOptions.map((printer) => (
-                        <option key={printer} value={printer}>
-                          {printer}
-                        </option>
-                      ))}
-                    </select>
+                      <SelectTrigger dir="rtl" className="h-10 w-full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent dir="rtl">
+                        <SelectItem value="default">استخدام الطابعة الافتراضية</SelectItem>
+                        {printerOptions.map((printer) => (
+                          <SelectItem key={printer} value={printer}>
+                            {printer}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </SettingsCard>
                 </div>
 

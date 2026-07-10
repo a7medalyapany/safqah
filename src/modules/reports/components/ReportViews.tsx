@@ -1,18 +1,25 @@
 import { useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Banknote, CreditCard, FileText, PackageSearch, Receipt, WalletCards } from "lucide-react";
+import { Banknote, Boxes, CreditCard, FileText, PackageSearch, Receipt, TrendingUp, WalletCards } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { groupLabels, paymentMethodLabels } from "@/modules/reports/constants";
-import type { BalanceKind, BalanceRow, DailySalesReport, ExpenseWithCategory, GroupBy, LowStockItem, PaymentMethodRow, PeriodSalesRow, ProfitReport, TopItemRow } from "@/modules/reports/types";
+import type { BalanceKind, BalanceRow, CustomerProfitRow, DailySalesReport, ExpenseWithCategory, GroupBy, LowStockItem, PaymentMethodRow, PeriodSalesRow, ProfitReport, StockValuationRow, TopItemRow } from "@/modules/reports/types";
 import { egpValue, missingValue, monthStart, printTable, today } from "@/modules/reports/utils";
 import { exportToCsv } from "@/shared/utils/exportCsv";
 import { invoke } from "@/shared/utils/invoke";
-import { formatEGP } from "@/shared/utils/money";
+import { formatEGP, formatPercent } from "@/shared/utils/money";
 import { BalancePaymentDialog } from "./BalancePaymentDialog";
 import { BarChartBox, ChartCard, DataTable, DateRangeFields, FilterField, FilterPanel, HorizontalBarChartBox, KpiCard, PieChartBox, ReportActions, ReportShell, TableCell } from "./ReportPrimitives";
 
@@ -275,16 +282,16 @@ export function TopItemsReportView({ onBack }: { onBack: () => void }) {
           setDateTo={setDateTo}
         />
         <FilterField label="عدد النتائج">
-          <select
-            dir="rtl"
-            className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-            value={limit}
-            onChange={(event) => setLimit(Number(event.target.value))}
-          >
-            <option value={10}>10</option>
-            <option value={20}>20</option>
-            <option value={50}>50</option>
-          </select>
+          <Select value={String(limit)} onValueChange={(value) => setLimit(Number(value))}>
+            <SelectTrigger dir="rtl" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent dir="rtl">
+              <SelectItem value="10">10</SelectItem>
+              <SelectItem value="20">20</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+            </SelectContent>
+          </Select>
         </FilterField>
       </FilterPanel>
 
@@ -368,7 +375,7 @@ export function ProfitReportView({ onBack }: { onBack: () => void }) {
         ["الربح الإجمالي", formatEGP(report.gross_profit_millieme)],
         ["إجمالي المصروفات", formatEGP(report.total_expenses_millieme)],
         ["صافي الربح", formatEGP(report.net_profit_millieme)],
-        ["هامش الربح", `${report.profit_margin_percent.toFixed(2)}%`],
+        ["هامش الربح", formatPercent(report.profit_margin_percent)],
       ]
     : [];
 
@@ -428,7 +435,7 @@ export function ProfitReportView({ onBack }: { onBack: () => void }) {
               {formatEGP(report?.net_profit_millieme ?? 0)}
             </p>
             <p className="mt-3 text-sm text-muted-foreground">
-              هامش الربح: {(report?.profit_margin_percent ?? 0).toFixed(2)}%
+              هامش الربح: {formatPercent(report?.profit_margin_percent ?? 0)}
             </p>
           </div>
           <PieChartBox data={pieData} />
@@ -570,7 +577,7 @@ export function PaymentMethodsReportView({ onBack }: { onBack: () => void }) {
     paymentMethodLabels[row.method] ?? row.method,
     String(row.invoice_count),
     formatEGP(row.total_millieme),
-    `${row.percentage.toFixed(2)}%`,
+    formatPercent(row.percentage),
   ]);
 
   return (
@@ -612,7 +619,7 @@ export function PaymentMethodsReportView({ onBack }: { onBack: () => void }) {
             </TableCell>
             <TableCell>{row.invoice_count}</TableCell>
             <TableCell>{formatEGP(row.total_millieme)}</TableCell>
-            <TableCell>{row.percentage.toFixed(2)}%</TableCell>
+            <TableCell>{formatPercent(row.percentage)}</TableCell>
           </tr>
         ))}
       </DataTable>
@@ -808,6 +815,398 @@ export function LowStockReportView({ onBack }: { onBack: () => void }) {
           )
         }
         onPrint={() => printTable("تقرير المخزون المنخفض", tableRef.current)}
+      />
+    </ReportShell>
+  );
+}
+
+export function CustomerProfitsReportView({ onBack }: { onBack: () => void }) {
+  const [dateFrom, setDateFrom] = useState(monthStart());
+  const [dateTo, setDateTo] = useState(today());
+  const [search, setSearch] = useState("");
+  const [params, setParams] = useState({ dateFrom, dateTo, search });
+  const tableRef = useRef<HTMLTableElement>(null);
+
+  const reportQuery = useQuery({
+    queryKey: ["report-customer-profits", params],
+    queryFn: () =>
+      invoke<CustomerProfitRow[]>("report_customer_profits", {
+        dateFrom: params.dateFrom || null,
+        dateTo: params.dateTo || null,
+        search: params.search.trim() || null,
+      }),
+  });
+
+  const rows = reportQuery.data ?? [];
+  const totalRevenue = rows.reduce(
+    (sum, row) => sum + row.total_revenue_millieme,
+    0,
+  );
+  const totalCost = rows.reduce((sum, row) => sum + row.total_cost_millieme, 0);
+  const totalProfit = rows.reduce(
+    (sum, row) => sum + row.gross_profit_millieme,
+    0,
+  );
+  const csvRows = rows.map((row) => [
+    row.name,
+    missingValue(row.phone),
+    String(row.invoice_count),
+    formatEGP(row.total_revenue_millieme),
+    formatEGP(row.total_cost_millieme),
+    formatEGP(row.gross_profit_millieme),
+  ]);
+
+  return (
+    <ReportShell
+      title="أرباح العملاء"
+      description="الربح المحقق من مشتريات كل عميل خلال الفترة المحددة."
+      onBack={onBack}
+    >
+      <FilterPanel
+        onSubmit={() => setParams({ dateFrom, dateTo, search })}
+        isLoading={reportQuery.isFetching}
+      >
+        <DateRangeFields
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          setDateFrom={setDateFrom}
+          setDateTo={setDateTo}
+        />
+        <FilterField label="بحث عن عميل">
+          <Input
+            dir="rtl"
+            placeholder="اسم العميل أو رقم الهاتف..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </FilterField>
+      </FilterPanel>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        <KpiCard
+          title="إجمالي الإيراد"
+          value={formatEGP(totalRevenue)}
+          icon={<Banknote />}
+        />
+        <KpiCard
+          title="إجمالي التكلفة"
+          value={formatEGP(totalCost)}
+          icon={<PackageSearch />}
+        />
+        <KpiCard
+          title="إجمالي الربح"
+          value={formatEGP(totalProfit)}
+          icon={<TrendingUp />}
+        />
+      </section>
+
+      <DataTable
+        ref={tableRef}
+        columns={[
+          "العميل",
+          "الهاتف",
+          "عدد الفواتير",
+          "الإيراد",
+          "التكلفة",
+          "الربح",
+        ]}
+        empty={rows.length === 0}
+      >
+        {rows.map((row) => (
+          <tr key={row.customer_id} className="border-t">
+            <TableCell className="font-medium text-foreground">
+              {row.name}
+            </TableCell>
+            <TableCell>{row.phone || "—"}</TableCell>
+            <TableCell>{row.invoice_count}</TableCell>
+            <TableCell>{formatEGP(row.total_revenue_millieme)}</TableCell>
+            <TableCell>{formatEGP(row.total_cost_millieme)}</TableCell>
+            <TableCell
+              className={
+                row.gross_profit_millieme >= 0
+                  ? "text-emerald-600"
+                  : "text-destructive"
+              }
+            >
+              {formatEGP(row.gross_profit_millieme)}
+            </TableCell>
+          </tr>
+        ))}
+      </DataTable>
+
+      <ReportActions
+        disabled={rows.length === 0}
+        onExportCsv={() =>
+          exportToCsv(
+            `أرباح_العملاء_${params.dateFrom}_${params.dateTo}.csv`,
+            ["العميل", "الهاتف", "عدد الفواتير", "الإيراد", "التكلفة", "الربح"],
+            csvRows,
+          )
+        }
+        onPrint={() => printTable("أرباح العملاء", tableRef.current)}
+      />
+    </ReportShell>
+  );
+}
+
+export function ItemProfitsReportView({ onBack }: { onBack: () => void }) {
+  const [dateFrom, setDateFrom] = useState(monthStart());
+  const [dateTo, setDateTo] = useState(today());
+  const [search, setSearch] = useState("");
+  const [limit, setLimit] = useState(50);
+  const [params, setParams] = useState({ dateFrom, dateTo, search, limit });
+  const tableRef = useRef<HTMLTableElement>(null);
+
+  const reportQuery = useQuery({
+    queryKey: ["report-item-profits", params],
+    queryFn: () =>
+      invoke<TopItemRow[]>("report_item_profits", {
+        dateFrom: params.dateFrom || null,
+        dateTo: params.dateTo || null,
+        search: params.search.trim() || null,
+        limit: params.limit,
+      }),
+  });
+
+  const rows = reportQuery.data ?? [];
+  const totalRevenue = rows.reduce(
+    (sum, row) => sum + row.total_revenue_millieme,
+    0,
+  );
+  const totalCost = rows.reduce((sum, row) => sum + row.total_cost_millieme, 0);
+  const totalProfit = rows.reduce(
+    (sum, row) => sum + row.gross_profit_millieme,
+    0,
+  );
+  const csvRows = rows.map((row) => [
+    row.name_ar,
+    String(row.total_qty_sold),
+    formatEGP(row.total_revenue_millieme),
+    formatEGP(row.total_cost_millieme),
+    formatEGP(row.gross_profit_millieme),
+  ]);
+
+  return (
+    <ReportShell
+      title="أرباح الأصناف"
+      description="ربح كل صنف خلال الفترة مرتباً من الأعلى ربحاً، مع البحث بالاسم أو الباركود."
+      onBack={onBack}
+    >
+      <FilterPanel
+        onSubmit={() => setParams({ dateFrom, dateTo, search, limit })}
+        isLoading={reportQuery.isFetching}
+      >
+        <DateRangeFields
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          setDateFrom={setDateFrom}
+          setDateTo={setDateTo}
+        />
+        <FilterField label="بحث عن صنف">
+          <Input
+            dir="rtl"
+            placeholder="اسم الصنف أو الباركود..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </FilterField>
+        <FilterField label="عدد النتائج">
+          <Select value={String(limit)} onValueChange={(value) => setLimit(Number(value))}>
+            <SelectTrigger dir="rtl" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent dir="rtl">
+              <SelectItem value="20">20</SelectItem>
+              <SelectItem value="50">50</SelectItem>
+              <SelectItem value="100">100</SelectItem>
+            </SelectContent>
+          </Select>
+        </FilterField>
+      </FilterPanel>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        <KpiCard
+          title="إجمالي الإيراد"
+          value={formatEGP(totalRevenue)}
+          icon={<Banknote />}
+        />
+        <KpiCard
+          title="إجمالي التكلفة"
+          value={formatEGP(totalCost)}
+          icon={<PackageSearch />}
+        />
+        <KpiCard
+          title="إجمالي الربح"
+          value={formatEGP(totalProfit)}
+          icon={<TrendingUp />}
+        />
+      </section>
+
+      <DataTable
+        ref={tableRef}
+        columns={["الصنف", "الكمية المباعة", "الإيراد", "التكلفة", "الربح"]}
+        empty={rows.length === 0}
+      >
+        {rows.map((row) => (
+          <tr key={row.item_id} className="border-t">
+            <TableCell className="font-medium text-foreground">
+              {row.name_ar}
+            </TableCell>
+            <TableCell>{row.total_qty_sold}</TableCell>
+            <TableCell>{formatEGP(row.total_revenue_millieme)}</TableCell>
+            <TableCell>{formatEGP(row.total_cost_millieme)}</TableCell>
+            <TableCell
+              className={
+                row.gross_profit_millieme >= 0
+                  ? "text-emerald-600"
+                  : "text-destructive"
+              }
+            >
+              {formatEGP(row.gross_profit_millieme)}
+            </TableCell>
+          </tr>
+        ))}
+      </DataTable>
+
+      <ReportActions
+        disabled={rows.length === 0}
+        onExportCsv={() =>
+          exportToCsv(
+            `أرباح_الأصناف_${params.dateFrom}_${params.dateTo}.csv`,
+            ["الصنف", "الكمية المباعة", "الإيراد", "التكلفة", "الربح"],
+            csvRows,
+          )
+        }
+        onPrint={() => printTable("أرباح الأصناف", tableRef.current)}
+      />
+    </ReportShell>
+  );
+}
+
+export function StockValuationReportView({ onBack }: { onBack: () => void }) {
+  const [search, setSearch] = useState("");
+  const [submittedSearch, setSubmittedSearch] = useState("");
+  const tableRef = useRef<HTMLTableElement>(null);
+
+  const reportQuery = useQuery({
+    queryKey: ["report-stock-valuation", submittedSearch],
+    queryFn: () =>
+      invoke<StockValuationRow[]>("report_stock_valuation", {
+        search: submittedSearch.trim() || null,
+      }),
+  });
+
+  const rows = reportQuery.data ?? [];
+  const totalCostValue = rows.reduce(
+    (sum, row) => sum + row.cost_value_millieme,
+    0,
+  );
+  const totalRetailValue = rows.reduce(
+    (sum, row) => sum + row.retail_value_millieme,
+    0,
+  );
+  const totalPotentialProfit = rows.reduce(
+    (sum, row) => sum + row.potential_profit_millieme,
+    0,
+  );
+  const csvRows = rows.map((row) => [
+    row.name_ar,
+    missingValue(row.barcode),
+    String(row.current_stock),
+    formatEGP(row.buy_price_millieme),
+    formatEGP(row.sell_price_millieme),
+    formatEGP(row.cost_value_millieme),
+    formatEGP(row.retail_value_millieme),
+    formatEGP(row.potential_profit_millieme),
+  ]);
+  const columns = [
+    "الصنف",
+    "الباركود",
+    "الكمية",
+    "سعر الشراء",
+    "سعر البيع",
+    "قيمة الشراء",
+    "قيمة البيع",
+    "الربح المتوقع",
+  ];
+
+  return (
+    <ReportShell
+      title="تقييم المخزون"
+      description="الأصناف الموجودة في المخزن وقيمتها بسعر الشراء وسعر البيع والربح المتوقع."
+      onBack={onBack}
+    >
+      <FilterPanel
+        onSubmit={() => setSubmittedSearch(search)}
+        isLoading={reportQuery.isFetching}
+      >
+        <FilterField label="بحث عن صنف">
+          <Input
+            dir="rtl"
+            placeholder="اسم الصنف أو الباركود..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </FilterField>
+      </FilterPanel>
+
+      <section className="grid gap-4 md:grid-cols-3">
+        <KpiCard
+          title="قيمة المخزون بسعر الشراء"
+          value={formatEGP(totalCostValue)}
+          icon={<Boxes />}
+        />
+        <KpiCard
+          title="قيمة المخزون بسعر البيع"
+          value={formatEGP(totalRetailValue)}
+          icon={<Banknote />}
+        />
+        <KpiCard
+          title="الربح المتوقع"
+          value={formatEGP(totalPotentialProfit)}
+          icon={<TrendingUp />}
+        />
+      </section>
+
+      <DataTable ref={tableRef} columns={columns} empty={rows.length === 0}>
+        {rows.map((row) => (
+          <tr key={row.item_id} className="border-t">
+            <TableCell className="font-medium text-foreground">
+              {row.name_ar}
+            </TableCell>
+            <TableCell>{row.barcode || "—"}</TableCell>
+            <TableCell>{row.current_stock}</TableCell>
+            <TableCell>{formatEGP(row.buy_price_millieme)}</TableCell>
+            <TableCell>{formatEGP(row.sell_price_millieme)}</TableCell>
+            <TableCell>{formatEGP(row.cost_value_millieme)}</TableCell>
+            <TableCell>{formatEGP(row.retail_value_millieme)}</TableCell>
+            <TableCell
+              className={
+                row.potential_profit_millieme >= 0
+                  ? "text-emerald-600"
+                  : "text-destructive"
+              }
+            >
+              {formatEGP(row.potential_profit_millieme)}
+            </TableCell>
+          </tr>
+        ))}
+        {rows.length > 0 ? (
+          <tr className="border-t bg-muted/40 font-semibold">
+            <TableCell colSpan={5}>الإجمالي</TableCell>
+            <TableCell>{formatEGP(totalCostValue)}</TableCell>
+            <TableCell>{formatEGP(totalRetailValue)}</TableCell>
+            <TableCell>{formatEGP(totalPotentialProfit)}</TableCell>
+          </tr>
+        ) : null}
+      </DataTable>
+
+      <ReportActions
+        disabled={rows.length === 0}
+        onExportCsv={() =>
+          exportToCsv(`تقييم_المخزون_${today()}.csv`, columns, csvRows)
+        }
+        onPrint={() => printTable("تقييم المخزون", tableRef.current)}
       />
     </ReportShell>
   );

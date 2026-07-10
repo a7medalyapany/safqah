@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation } from "@tanstack/react-query";
+
+import { useInvalidate } from "@/shared/hooks/useInvalidate";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { parseAppError } from "@/modules/items/utils";
 import type { DeferredInvoiceSummary, PaymentMethod } from "@/modules/finance/types";
 import { invoke } from "@/shared/utils/invoke";
@@ -20,7 +29,7 @@ export function CollectPaymentDialog({
   onOpenChange: (open: boolean) => void;
   sessionId: number | null;
 }) {
-  const queryClient = useQueryClient();
+  const invalidate = useInvalidate();
   const [amount, setAmount] = useState("");
   const [method, setMethod] = useState<PaymentMethod>("cash");
 
@@ -49,12 +58,12 @@ export function CollectPaymentDialog({
         toast.success("تم تسجيل الدفعة");
       }
 
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["deferred-invoices"] }),
-        queryClient.invalidateQueries({ queryKey: ["customers"] }),
-        queryClient.invalidateQueries({ queryKey: ["payments"] }),
-        queryClient.invalidateQueries({ queryKey: ["cash-summary"] }),
-      ]);
+      void invalidate(
+        ["deferred-invoices"],
+        ["customers"],
+        ["payments"],
+        ["cash-summary"],
+      );
 
       onOpenChange(false);
     },
@@ -140,18 +149,16 @@ export function CollectPaymentDialog({
             <span className="block text-sm font-medium text-foreground">
               طريقة الاستلام
             </span>
-            <select
-              dir="rtl"
-              className="h-9 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-              value={method}
-              onChange={(event) =>
-                setMethod(event.target.value as PaymentMethod)
-              }
-            >
-              <option value="cash">كاش</option>
-              <option value="card">فيزا</option>
-              <option value="bank">تحويل</option>
-            </select>
+            <Select value={method} onValueChange={(value) => setMethod(value as PaymentMethod)}>
+              <SelectTrigger dir="rtl" className="h-9 w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent dir="rtl">
+                <SelectItem value="cash">كاش</SelectItem>
+                <SelectItem value="card">فيزا</SelectItem>
+                <SelectItem value="bank">تحويل</SelectItem>
+              </SelectContent>
+            </Select>
           </label>
 
           <DialogFooter className="flex-row-reverse justify-start gap-2 bg-transparent p-0 pt-2">

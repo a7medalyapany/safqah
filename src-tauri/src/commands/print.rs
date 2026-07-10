@@ -16,12 +16,17 @@ use crate::{
     },
     services::invoice_pdf as invoice_pdf_service,
 };
+use crate::commands::{auth::SessionStore, guard};
 
 #[tauri::command]
 pub async fn generate_invoice_pdf(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     invoice_id: i64,
 ) -> Result<String, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     let invoice = fetch_invoice_detail(&pool, invoice_id).await?;
     let mut settings = fetch_settings_map(&pool).await?;
     inject_customer_balance(&pool, &invoice, &mut settings).await?;
@@ -33,9 +38,13 @@ pub async fn generate_invoice_pdf(
 #[tauri::command]
 pub async fn open_whatsapp_with_invoice(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     invoice_id: i64,
     invoice_number: String,
 ) -> Result<bool, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     let invoice = fetch_invoice_detail(&pool, invoice_id).await?;
     let mut settings = fetch_settings_map(&pool).await?;
     inject_customer_balance(&pool, &invoice, &mut settings).await?;
@@ -53,12 +62,28 @@ pub async fn open_whatsapp_with_invoice(
 }
 
 #[tauri::command]
-pub async fn get_label_printer_list() -> Result<Vec<String>, AppError> {
-    list_printers().await
+pub async fn get_label_printer_list(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+) -> Result<Vec<String>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
+    list_printers_impl()
 }
 
 #[tauri::command]
-pub async fn list_printers() -> Result<Vec<String>, AppError> {
+pub async fn list_printers(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+) -> Result<Vec<String>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
+    list_printers_impl()
+}
+
+fn list_printers_impl() -> Result<Vec<String>, AppError> {
     match list_os_printers() {
         Ok(printers) => Ok(printers),
         Err(error) => {
@@ -109,8 +134,12 @@ async fn fetch_customer_balance(pool: &DbPool, customer_id: i64) -> Result<Optio
 #[tauri::command]
 pub async fn get_invoice_print_data(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     invoice_id: i64,
 ) -> Result<InvoicePrintData, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     let invoice = fetch_invoice_detail(&pool, invoice_id).await?;
     let shop = shop_info_from_settings(&pool).await?;
 
@@ -151,8 +180,12 @@ pub async fn get_invoice_print_data(
 #[tauri::command]
 pub async fn get_purchase_print_data(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     purchase_id: i64,
 ) -> Result<PurchasePrintData, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     let purchase = get_purchase_detail_impl(&pool, purchase_id).await?;
     let shop = shop_info_from_settings(&pool).await?;
 
@@ -184,8 +217,12 @@ pub async fn get_purchase_print_data(
 #[tauri::command]
 pub async fn get_return_print_data(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     return_id: i64,
 ) -> Result<ReturnPrintData, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     let return_data = get_return_by_id(&pool, return_id).await?;
 
     let original_invoice_number: String =
@@ -235,8 +272,12 @@ pub async fn get_return_print_data(
 #[tauri::command]
 pub async fn get_barcode_print_data(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     item_ids: Vec<i64>,
 ) -> Result<Vec<BarcodePrintData>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     let mut results = Vec::with_capacity(item_ids.len());
 
     for item_id in item_ids {

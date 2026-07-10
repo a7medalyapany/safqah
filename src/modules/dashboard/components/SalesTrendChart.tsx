@@ -9,7 +9,7 @@ import {
 } from "recharts";
 
 import type { SalesTrendPoint } from "@/modules/dashboard/types";
-import { formatEGP } from "@/shared/utils/money";
+import { formatAxisNumber, formatEGP } from "@/shared/utils/money";
 
 type ChartMouseState = {
   isTooltipActive?: boolean;
@@ -67,7 +67,12 @@ export function SalesTrendChart({ data }: { data: SalesTrendPoint[] }) {
             </defs>
             <CartesianGrid strokeDasharray="3 3" vertical={false} />
             <XAxis dataKey="label" tickLine={false} axisLine={false} />
-            <YAxis tickLine={false} axisLine={false} width={56} />
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              width={56}
+              tickFormatter={formatAxisNumber}
+            />
             <Area
               type="monotone"
               dataKey="total_egp"

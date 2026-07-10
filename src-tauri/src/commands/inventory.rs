@@ -1,21 +1,12 @@
 use tauri::State;
 
 use crate::{
+    commands::util::normalize_optional_string,
     db::DbPool,
     errors::AppError,
     models::{inventory::StockMovement, item::Item},
 };
-
-fn normalize_optional_string(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        let trimmed = value.trim().to_owned();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        }
-    })
-}
+use crate::commands::{auth::SessionStore, guard};
 
 async fn adjust_stock_impl(
     pool: &DbPool,
@@ -117,18 +108,26 @@ async fn get_item_movements_impl(
 #[tauri::command]
 pub async fn get_item_movements(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     item_id: i64,
     limit: Option<i64>,
 ) -> Result<Vec<StockMovement>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_CASHIER).await?;
+
     get_item_movements_impl(&pool, item_id, limit).await
 }
 
 #[tauri::command]
 pub async fn adjust_stock(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     item_id: i64,
     new_qty: i64,
     reason: Option<String>,
 ) -> Result<Item, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_CASHIER).await?;
+
     adjust_stock_impl(&pool, item_id, new_qty, reason).await
 }

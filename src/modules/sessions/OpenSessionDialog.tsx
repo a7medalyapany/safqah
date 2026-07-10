@@ -81,7 +81,7 @@ export function OpenSessionDialog({
           />
         </label>
 
-        <DialogFooter>
+        <DialogFooter className="flex-row-reverse justify-start gap-2 bg-transparent p-0 pt-2">
           <Button
             variant="outline"
             onClick={() => onOpenChange(false)}

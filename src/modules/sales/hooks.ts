@@ -1,4 +1,6 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+
+import { useInvalidate } from "@/shared/hooks/useInvalidate";
 
 import {
   createReturn,
@@ -26,6 +28,7 @@ export function useInvoices(params: {
   dateFrom: string;
   dateTo: string;
   customerSearch: string;
+  invoiceSearch: string;
   status: string;
   paymentMethod: string;
   visibleLimit: number;
@@ -35,6 +38,7 @@ export function useInvoices(params: {
       params.dateFrom,
       params.dateTo,
       params.customerSearch,
+      params.invoiceSearch,
       params.status,
       params.paymentMethod,
       params.visibleLimit,
@@ -45,6 +49,7 @@ export function useInvoices(params: {
           dateFrom: params.dateFrom,
           dateTo: params.dateTo,
           customerSearch: params.customerSearch,
+          invoiceSearch: params.invoiceSearch,
           status: params.status,
           paymentMethod: params.paymentMethod,
           limit: params.visibleLimit,
@@ -64,17 +69,18 @@ export function useInvoiceDetail(invoiceId: number | null) {
 }
 
 export function useCreateReturnMutation(invoiceId: number) {
-  const queryClient = useQueryClient();
+  const invalidate = useInvalidate();
 
   return useMutation({
     mutationFn: (payload: CreateReturnPayload) => createReturn(payload),
     onSuccess: async () => {
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ["invoices"] }),
-        queryClient.invalidateQueries({ queryKey: salesKeys.detail(invoiceId) }),
-        queryClient.invalidateQueries({ queryKey: salesKeys.stats }),
-        queryClient.invalidateQueries({ queryKey: ["items"] }),
-      ]);
+      await invalidate(
+        ["invoices"],
+        salesKeys.detail(invoiceId),
+        salesKeys.stats,
+        ["items"],
+        ["dashboard"],
+      );
     },
   });
 }

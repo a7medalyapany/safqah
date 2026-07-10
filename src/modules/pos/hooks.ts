@@ -13,6 +13,8 @@ export function usePosCategories() {
     queryKey: posKeys.categories,
     queryFn: listCategories,
     staleTime: POS_STALE_TIME_MS,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -22,6 +24,8 @@ export function usePosItems(query: string, categoryId: number | null) {
     queryFn: () =>
       searchPosItems({ query: query.trim() || null, categoryId }),
     staleTime: POS_STALE_TIME_MS,
+    refetchOnMount: "always",
+    refetchOnWindowFocus: true,
   });
 }
 

@@ -2,11 +2,13 @@ use sqlx::{QueryBuilder, Sqlite};
 use tauri::State;
 
 use crate::{
+    commands::util::normalize_optional_string,
     db::DbPool,
     errors::AppError,
     models::import::CsvImportReport,
     models::item::{Category, CreateItemPayload, Item, UpdateItemPayload},
 };
+use crate::commands::{auth::SessionStore, guard};
 
 #[derive(Debug, serde::Deserialize)]
 struct ItemCsvRow {
@@ -25,17 +27,6 @@ struct ItemCsvRow {
     supplier_id: Option<String>,
     supplier_name: Option<String>,
     image_path: Option<String>,
-}
-
-fn normalize_optional_string(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        let trimmed = value.trim().to_owned();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        }
-    })
 }
 
 async fn find_or_create_category_id(pool: &DbPool, name: &str) -> Result<Option<i64>, AppError> {
@@ -606,67 +597,111 @@ fn csv_error(message: &str) -> AppError {
 #[tauri::command]
 pub async fn list_items(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     search: Option<String>,
     category_id: Option<i64>,
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<Vec<Item>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     list_items_impl(&pool, search, category_id, limit, offset).await
 }
 
 #[tauri::command]
 pub async fn get_item_by_barcode(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     barcode: String,
 ) -> Result<Item, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     get_item_by_barcode_impl(&pool, barcode).await
 }
 
 #[tauri::command]
 pub async fn create_item(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     payload: CreateItemPayload,
 ) -> Result<Item, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_CASHIER).await?;
+
     create_item_impl(&pool, payload).await
 }
 
 #[tauri::command]
 pub async fn update_item(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     id: i64,
     payload: UpdateItemPayload,
 ) -> Result<Item, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_CASHIER).await?;
+
     update_item_impl(&pool, id, payload).await
 }
 
 #[tauri::command]
-pub async fn delete_item(pool: State<'_, DbPool>, id: i64) -> Result<bool, AppError> {
+pub async fn delete_item(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+    id: i64,
+) -> Result<bool, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_CASHIER).await?;
+
     delete_item_impl(&pool, id).await
 }
 
 #[tauri::command]
-pub async fn list_categories(pool: State<'_, DbPool>) -> Result<Vec<Category>, AppError> {
+pub async fn list_categories(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+) -> Result<Vec<Category>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     list_categories_impl(&pool).await
 }
 
 #[tauri::command]
 pub async fn create_category(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     name_ar: String,
 ) -> Result<Category, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_CASHIER).await?;
+
     create_category_impl(&pool, name_ar).await
 }
 
 #[tauri::command]
-pub async fn delete_category(pool: State<'_, DbPool>, id: i64) -> Result<bool, AppError> {
+pub async fn delete_category(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+    id: i64,
+) -> Result<bool, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_OR_CASHIER).await?;
+
     delete_category_impl(&pool, id).await
 }
 
 #[tauri::command]
 pub async fn import_items_csv(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     file_path: String,
 ) -> Result<CsvImportReport, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ADMIN_ONLY).await?;
+
     import_items_csv_impl(&pool, file_path).await
 }
 

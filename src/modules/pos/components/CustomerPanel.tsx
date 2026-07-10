@@ -2,7 +2,7 @@ import { UserRound, X } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
 import type { Customer } from "@/modules/parties/types";
-import { formatEGP } from "@/shared/utils/money";
+import { BalanceBadge } from "@/shared/components/BalanceBadge";
 
 export function CustomerPanel({
   customerSearch,
@@ -63,9 +63,7 @@ export function CustomerPanel({
                   onClick={() => onSelectCustomer(customer)}
                 >
                   <span>{customer.name}</span>
-                  <span className="text-sm text-muted-foreground">
-                    {formatEGP(customer.balance_millieme)}
-                  </span>
+                  <BalanceBadge balanceMillieme={customer.balance_millieme} />
                 </button>
               ))
             )}
@@ -74,21 +72,9 @@ export function CustomerPanel({
       </div>
 
       {selectedCustomer ? (
-        <div className="space-y-1 rounded-xl bg-muted/40 p-3 text-sm">
-          <div className="flex items-center justify-between gap-3">
-            <span className="font-medium">{selectedCustomer.name}</span>
-            <span>{formatEGP(selectedCustomer.balance_millieme)}</span>
-          </div>
-          {selectedCustomer.balance_millieme > 0 ? (
-            <p className="font-medium text-amber-700">
-              مديونية: {formatEGP(selectedCustomer.balance_millieme)}
-            </p>
-          ) : selectedCustomer.balance_millieme < 0 ? (
-            <p className="font-medium text-emerald-700">
-              رصيد دائن للعميل:{" "}
-              {formatEGP(Math.abs(selectedCustomer.balance_millieme))}
-            </p>
-          ) : null}
+        <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/40 p-3 text-sm">
+          <span className="font-medium">{selectedCustomer.name}</span>
+          <BalanceBadge balanceMillieme={selectedCustomer.balance_millieme} />
         </div>
       ) : null}
     </div>

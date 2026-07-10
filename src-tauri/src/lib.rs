@@ -10,6 +10,7 @@ use tauri::{Manager, State};
 use commands::{
     auth::{
         create_user, deactivate_user, get_current_user, list_users, login, logout, update_user,
+        SessionStore,
     },
     customers::{create_customer, delete_customer, get_customer, list_customers, update_customer},
     finance::{
@@ -30,9 +31,9 @@ use commands::{
         open_whatsapp_with_invoice,
     },
     reports::{
-        report_customer_balances, report_daily_sales, report_low_stock, report_payment_methods,
-        report_profit_analysis, report_sales_by_period, report_supplier_balances,
-        report_top_items,
+        report_customer_balances, report_customer_profits, report_daily_sales, report_item_profits,
+        report_low_stock, report_payment_methods, report_profit_analysis, report_sales_by_period,
+        report_stock_valuation, report_supplier_balances, report_top_items,
     },
     sales::{
         create_return, create_sale_invoice, get_invoice_detail, get_invoice_stats, list_invoices,
@@ -65,19 +66,19 @@ use db::DbPool;
 use errors::AppError;
 use services::backup::BackupService;
 
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
 #[derive(Debug, Serialize)]
 struct DbInfo {
     journal_mode: String,
 }
 
 #[tauri::command]
-async fn get_db_info(pool: State<'_, DbPool>) -> Result<DbInfo, AppError> {
+async fn get_db_info(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+) -> Result<DbInfo, AppError> {
+    commands::guard::require_role(&sessions, &pool, token, commands::guard::ANY_ROLE).await?;
+
     let row: (String,) = sqlx::query_as("PRAGMA journal_mode;")
         .fetch_one(&*pool)
         .await?;
@@ -97,15 +98,20 @@ pub fn run() {
         .setup(|app| {
             let pool = tauri::async_runtime::block_on(db::get_pool());
             let backup_service = BackupService::new();
+            let worker_pool = pool.clone();
             app.manage(pool);
             app.manage(backup_service.clone());
+            app.manage(SessionStore::default());
             let backup_worker = backup_service.clone();
 
             tauri::async_runtime::spawn(async move {
                 loop {
                     tokio::time::sleep(std::time::Duration::from_secs(4 * 60 * 60)).await;
 
-                    if let Err(error) = backup_worker.create_backup() {
+                    if let Err(error) = backup_worker
+                        .create_backup_with_checkpoint(&worker_pool)
+                        .await
+                    {
                         eprintln!("Automatic periodic backup failed: {error:?}");
                     }
                 }
@@ -113,7 +119,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet,
             get_db_info,
             login,
             logout,
@@ -199,7 +204,10 @@ pub fn run() {
             report_profit_analysis,
             report_payment_methods,
             report_customer_balances,
-            report_supplier_balances
+            report_supplier_balances,
+            report_customer_profits,
+            report_item_profits,
+            report_stock_valuation
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

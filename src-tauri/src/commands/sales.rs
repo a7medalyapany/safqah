@@ -5,6 +5,9 @@ use tauri::State;
 
 use crate::{
     commands::settings::get_setting_value,
+    commands::util::{
+        build_document_number, item_not_found_error, load_text_setting, normalize_optional_string,
+    },
     db::DbPool,
     errors::AppError,
     models::{
@@ -16,13 +19,13 @@ use crate::{
         },
     },
 };
+use crate::commands::{auth::SessionStore, guard};
 
 #[derive(Debug, sqlx::FromRow)]
 struct ActiveItem {
     id: i64,
     barcode: Option<String>,
     buy_price_millieme: i64,
-    current_stock: i64,
     name_ar: String,
 }
 
@@ -32,23 +35,35 @@ struct ReturnableInvoiceItem {
     item_id: i64,
     qty: i64,
     unit_price_millieme: i64,
+    /// Line total after the per-line discount (unit_price * qty - discount).
+    total_millieme: i64,
+}
+
+/// Refund owed for returning `returned_qty` units of an invoice line, based on
+/// what the customer actually paid. The line total is already net of the
+/// per-line discount; scaling by `invoice_total / invoice_subtotal` prorates
+/// the invoice-level (global) discount and tax too. Prorated for partial
+/// returns; a full return of the whole invoice sums back to the invoice total.
+fn return_line_refund_millieme(
+    line: &ReturnableInvoiceItem,
+    returned_qty: i64,
+    invoice_subtotal_millieme: i64,
+    invoice_total_millieme: i64,
+) -> i64 {
+    if line.qty <= 0 {
+        return 0;
+    }
+    let numerator = (line.total_millieme as i128)
+        * (returned_qty as i128)
+        * (invoice_total_millieme as i128);
+    let denominator = (line.qty as i128) * (invoice_subtotal_millieme.max(1) as i128);
+    ((numerator + denominator / 2) / denominator) as i64
 }
 
 #[cfg_attr(not(test), allow(dead_code))]
 #[derive(Clone, Copy)]
 enum SaleFailPoint {
     AfterInvoiceItems,
-}
-
-fn normalize_optional_string(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        let trimmed = value.trim().to_owned();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed)
-        }
-    })
 }
 
 fn compute_line_total(line: &InvoiceItemPayload) -> i64 {
@@ -60,14 +75,6 @@ fn session_not_open_error() -> AppError {
         "SESSION_NOT_OPEN",
         "الوردية غير مفتوحة",
         "Session is not open",
-    )
-}
-
-fn item_not_found_error() -> AppError {
-    AppError::new(
-        "ITEM_NOT_FOUND",
-        "الصنف غير موجود أو غير نشط",
-        "Item not found or inactive",
     )
 }
 
@@ -91,7 +98,7 @@ async fn get_active_item(
     item_id: i64,
 ) -> Result<ActiveItem, AppError> {
     sqlx::query_as::<_, ActiveItem>(
-        "SELECT id, barcode, buy_price_millieme, current_stock, name_ar FROM items WHERE id = ? AND is_active = 1",
+        "SELECT id, barcode, buy_price_millieme, name_ar FROM items WHERE id = ? AND is_active = 1",
     )
     .bind(item_id)
     .fetch_optional(&mut **tx)
@@ -185,6 +192,19 @@ async fn list_invoices_impl(
     if let Some(customer_search) = normalize_optional_string(filters.customer_search) {
         query.push(" AND customers.name LIKE ");
         query.push_bind(format!("%{customer_search}%"));
+    }
+
+    if let Some(invoice_search) = normalize_optional_string(filters.invoice_search) {
+        let like_pattern = format!("%{invoice_search}%");
+        query.push(" AND (invoices.invoice_number LIKE ");
+        query.push_bind(like_pattern.clone());
+        query.push(
+            " OR EXISTS (SELECT 1 FROM invoice_items WHERE invoice_items.invoice_id = invoices.id AND (invoice_items.item_name_ar LIKE ",
+        );
+        query.push_bind(like_pattern);
+        query.push(" OR invoice_items.barcode = ");
+        query.push_bind(invoice_search);
+        query.push(")))");
     }
 
     if let Some(status) = normalize_optional_string(filters.status) {
@@ -342,36 +362,50 @@ fn validate_return_payload(payload: &CreateReturnPayload) -> Result<String, AppE
     Ok(refund_method)
 }
 
+/// Resolves the invoice status, the amount recorded as paid, and how the
+/// customer's balance should change.
+///
+/// Returns `(status, paid_millieme, balance_delta)` where a positive
+/// `balance_delta` means the customer now owes us more (مديونية) and a negative
+/// one means we owe the customer / they gained store credit (دائن). When no
+/// customer is attached, `balance_delta` is always 0 (cash overpayment is
+/// change handed back, not credit).
 fn sale_status_and_paid(
     payment_method: &str,
     requested_paid: i64,
     total: i64,
-) -> (&'static str, i64) {
-    if payment_method == "deferred" {
-        return ("deferred", 0);
-    }
-
-    if requested_paid >= total {
-        ("paid", requested_paid)
-    } else if requested_paid > 0 {
-        ("partial", requested_paid)
-    } else {
-        ("deferred", 0)
-    }
-}
-
-async fn load_text_setting(pool: &DbPool, key: &str, default: &str) -> Result<String, AppError> {
-    Ok(get_setting_value(pool, key)
-        .await?
-        .and_then(|value| {
-            let trimmed = value.trim().to_owned();
-            if trimmed.is_empty() {
-                None
+    customer_present: bool,
+) -> (&'static str, i64, i64) {
+    match payment_method {
+        // Cash always covers the full total (enforced in the UI). Any overpayment
+        // is credited to the customer's balance when one is selected, otherwise
+        // it is change returned from the drawer.
+        "cash" => {
+            let excess = (requested_paid - total).max(0);
+            let balance_delta = if customer_present { -excess } else { 0 };
+            ("paid", total, balance_delta)
+        }
+        // Deferred honours the "paid now" amount: the rest is recorded against the
+        // customer's balance, and overpayment becomes store credit (negative delta).
+        "deferred" => {
+            let paid_millieme = requested_paid.clamp(0, total);
+            let balance_delta = if customer_present {
+                total - requested_paid
             } else {
-                Some(trimmed)
-            }
-        })
-        .unwrap_or_else(|| default.to_owned()))
+                0
+            };
+            let status = if requested_paid >= total {
+                "paid"
+            } else if requested_paid > 0 {
+                "partial"
+            } else {
+                "deferred"
+            };
+            (status, paid_millieme, balance_delta)
+        }
+        // Card / split must equal the total (enforced in the UI).
+        _ => ("paid", total, 0),
+    }
 }
 
 async fn load_i64_setting(pool: &DbPool, key: &str, default: i64) -> Result<i64, AppError> {
@@ -380,10 +414,6 @@ async fn load_i64_setting(pool: &DbPool, key: &str, default: i64) -> Result<i64,
         .and_then(|value| value.trim().parse::<i64>().ok())
         .unwrap_or(default)
         .max(0))
-}
-
-fn build_document_number(prefix: &str, number: i64) -> String {
-    format!("{}-{:06}", prefix.trim(), number)
 }
 
 fn calculate_tax_millieme(base_millieme: i64, tax_percent: i64) -> i64 {
@@ -409,6 +439,129 @@ async fn create_sale_invoice_impl_inner(
     create_sale_invoice_impl_tx(pool, payload, fail_point).await
 }
 
+/// Rejects a sale where any line, or the discounted subtotal, would fall below the
+/// item cost (buy price). Keeps the per-line and whole-invoice floor checks together.
+fn validate_sale_cost_floor(
+    items: &[InvoiceItemPayload],
+    validated_items: &[ActiveItem],
+    taxable_millieme: i64,
+) -> Result<(), AppError> {
+    let mut minimum_subtotal_millieme = 0i64;
+
+    for (item, active_item) in items.iter().zip(validated_items.iter()) {
+        let minimum_line_total_millieme = active_item.buy_price_millieme * item.qty;
+
+        if compute_line_total(item) < minimum_line_total_millieme {
+            return Err(AppError::validation("لا يمكن البيع بأقل من سعر التكلفة"));
+        }
+
+        minimum_subtotal_millieme += minimum_line_total_millieme;
+    }
+
+    if taxable_millieme < minimum_subtotal_millieme {
+        return Err(AppError::validation(
+            "الخصم يجعل إجمالي الفاتورة أقل من سعر التكلفة",
+        ));
+    }
+
+    Ok(())
+}
+
+async fn insert_sale_invoice_items(
+    tx: &mut Transaction<'_, Sqlite>,
+    invoice_id: i64,
+    items: &[InvoiceItemPayload],
+    validated_items: &[ActiveItem],
+) -> Result<(), AppError> {
+    for (item, active_item) in items.iter().zip(validated_items.iter()) {
+        sqlx::query(
+            r#"
+            INSERT INTO invoice_items (
+              invoice_id,
+              item_id,
+              barcode,
+              item_name_ar,
+              qty,
+              unit_price_millieme,
+              discount_millieme,
+              total_millieme
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+        )
+        .bind(invoice_id)
+        .bind(item.item_id)
+        .bind(&active_item.barcode)
+        .bind(&active_item.name_ar)
+        .bind(item.qty)
+        .bind(item.unit_price_millieme)
+        .bind(item.discount_millieme)
+        .bind(compute_line_total(item))
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+/// Decrements item stock for each sold line and records the matching stock movement.
+async fn apply_sale_stock(
+    tx: &mut Transaction<'_, Sqlite>,
+    invoice_id: i64,
+    items: &[InvoiceItemPayload],
+    validated_items: &[ActiveItem],
+) -> Result<(), AppError> {
+    for (item, active_item) in items.iter().zip(validated_items.iter()) {
+        sqlx::query(
+            "UPDATE items SET current_stock = current_stock - ?, updated_at = datetime('now') WHERE id = ?",
+        )
+        .bind(item.qty)
+        .bind(active_item.id)
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO stock_movements (
+              item_id,
+              delta,
+              movement_type,
+              reference_id,
+              reference_type
+            )
+            VALUES (?, ?, 'sale', ?, 'invoice')
+            "#,
+        )
+        .bind(active_item.id)
+        .bind(-item.qty)
+        .bind(invoice_id)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn apply_customer_balance_delta(
+    tx: &mut Transaction<'_, Sqlite>,
+    customer_id: Option<i64>,
+    balance_delta: i64,
+) -> Result<(), AppError> {
+    if let Some(customer_id) = customer_id {
+        if balance_delta != 0 {
+            sqlx::query(
+                "UPDATE customers SET balance_millieme = balance_millieme + ? WHERE id = ?",
+            )
+            .bind(balance_delta)
+            .bind(customer_id)
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
 async fn create_sale_invoice_impl_tx(
     pool: &DbPool,
     payload: CreateSaleInvoicePayload,
@@ -422,9 +575,7 @@ async fn create_sale_invoice_impl_tx(
 
     let mut validated_items = Vec::with_capacity(payload.items.len());
     for item in &payload.items {
-        let active_item = get_active_item(&mut tx, item.item_id).await?;
-        let _ = active_item.current_stock;
-        validated_items.push(active_item);
+        validated_items.push(get_active_item(&mut tx, item.item_id).await?);
     }
 
     let (invoice_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM invoices")
@@ -439,29 +590,15 @@ async fn create_sale_invoice_impl_tx(
     let tax_millieme = calculate_tax_millieme(taxable_millieme, tax_percent);
     let total_millieme = taxable_millieme + tax_millieme;
 
-    let minimum_subtotal_millieme: i64 = payload
-        .items
-        .iter()
-        .zip(validated_items.iter())
-        .map(|(item, active_item)| active_item.buy_price_millieme * item.qty)
-        .sum();
-
-    for (item, active_item) in payload.items.iter().zip(validated_items.iter()) {
-        let line_total_millieme = compute_line_total(item);
-        let minimum_line_total_millieme = active_item.buy_price_millieme * item.qty;
-
-        if line_total_millieme < minimum_line_total_millieme {
-            return Err(AppError::validation("لا يمكن البيع بأقل من سعر التكلفة"));
-        }
-    }
-
-    if taxable_millieme < minimum_subtotal_millieme {
-        return Err(AppError::validation("الخصم يجعل إجمالي الفاتورة أقل من سعر التكلفة"));
-    }
+    validate_sale_cost_floor(&payload.items, &validated_items, taxable_millieme)?;
 
     let payment_method = payload.payment_method.trim().to_owned();
-    let (status, paid_millieme) =
-        sale_status_and_paid(&payment_method, payload.paid_millieme, total_millieme);
+    let (status, paid_millieme, balance_delta) = sale_status_and_paid(
+        &payment_method,
+        payload.paid_millieme,
+        total_millieme,
+        payload.customer_id.is_some(),
+    );
     let notes = normalize_optional_string(payload.notes);
 
     let result = sqlx::query(
@@ -498,33 +635,7 @@ async fn create_sale_invoice_impl_tx(
 
     let invoice_id = result.last_insert_rowid();
 
-    for (item, active_item) in payload.items.iter().zip(validated_items.iter()) {
-        sqlx::query(
-            r#"
-            INSERT INTO invoice_items (
-              invoice_id,
-              item_id,
-              barcode,
-              item_name_ar,
-              qty,
-              unit_price_millieme,
-              discount_millieme,
-              total_millieme
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            "#,
-        )
-        .bind(invoice_id)
-        .bind(item.item_id)
-        .bind(&active_item.barcode)
-        .bind(&active_item.name_ar)
-        .bind(item.qty)
-        .bind(item.unit_price_millieme)
-        .bind(item.discount_millieme)
-        .bind(compute_line_total(item))
-        .execute(&mut *tx)
-        .await?;
-    }
+    insert_sale_invoice_items(&mut tx, invoice_id, &payload.items, &validated_items).await?;
 
     #[cfg(test)]
     if matches!(fail_point, Some(SaleFailPoint::AfterInvoiceItems)) {
@@ -536,42 +647,8 @@ async fn create_sale_invoice_impl_tx(
         ));
     }
 
-    for (payload_item, active_item) in payload.items.iter().zip(validated_items.iter()) {
-        sqlx::query(
-            "UPDATE items SET current_stock = current_stock - ?, updated_at = datetime('now') WHERE id = ?",
-        )
-        .bind(payload_item.qty)
-        .bind(active_item.id)
-        .execute(&mut *tx)
-        .await?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO stock_movements (
-              item_id,
-              delta,
-              movement_type,
-              reference_id,
-              reference_type
-            )
-            VALUES (?, ?, 'sale', ?, 'invoice')
-            "#,
-        )
-        .bind(active_item.id)
-        .bind(-payload_item.qty)
-        .bind(invoice_id)
-        .execute(&mut *tx)
-        .await?;
-    }
-
-    if payload.customer_id.is_some() && matches!(status, "deferred" | "partial") {
-        let remaining_millieme = total_millieme - paid_millieme;
-        sqlx::query("UPDATE customers SET balance_millieme = balance_millieme + ? WHERE id = ?")
-            .bind(remaining_millieme)
-            .bind(payload.customer_id)
-            .execute(&mut *tx)
-            .await?;
-    }
+    apply_sale_stock(&mut tx, invoice_id, &payload.items, &validated_items).await?;
+    apply_customer_balance_delta(&mut tx, payload.customer_id, balance_delta).await?;
 
     tx.commit().await?;
 
@@ -603,13 +680,15 @@ async fn create_return_impl(
 
     ensure_open_session(&mut tx, payload.session_id).await?;
 
-    let invoice: Option<(Option<i64>, String)> =
-        sqlx::query_as("SELECT customer_id, status FROM invoices WHERE id = ?")
-            .bind(payload.original_invoice_id)
-            .fetch_optional(&mut *tx)
-            .await?;
+    let invoice: Option<(Option<i64>, String, i64, i64)> = sqlx::query_as(
+        "SELECT customer_id, status, subtotal_millieme, total_millieme FROM invoices WHERE id = ?",
+    )
+    .bind(payload.original_invoice_id)
+    .fetch_optional(&mut *tx)
+    .await?;
 
-    let (customer_id, invoice_status) = invoice.ok_or_else(|| AppError::not_found("الفاتورة"))?;
+    let (customer_id, invoice_status, invoice_subtotal_millieme, invoice_total_millieme) =
+        invoice.ok_or_else(|| AppError::not_found("الفاتورة"))?;
     if invoice_status == "cancelled" {
         return Err(AppError::validation("لا يمكن تسجيل مرتجع لفاتورة ملغية"));
     }
@@ -624,7 +703,7 @@ async fn create_return_impl(
     for (invoice_item_id, requested_qty) in &requested_by_invoice_item {
         let original: ReturnableInvoiceItem = sqlx::query_as(
             r#"
-            SELECT id, item_id, qty, unit_price_millieme
+            SELECT id, item_id, qty, unit_price_millieme, total_millieme
             FROM invoice_items
             WHERE id = ? AND invoice_id = ?
             "#,
@@ -651,7 +730,7 @@ async fn create_return_impl(
     for item in &payload.items {
         let original: ReturnableInvoiceItem = sqlx::query_as(
             r#"
-            SELECT id, item_id, qty, unit_price_millieme
+            SELECT id, item_id, qty, unit_price_millieme, total_millieme
             FROM invoice_items
             WHERE id = ? AND item_id = ? AND invoice_id = ?
             "#,
@@ -676,7 +755,14 @@ async fn create_return_impl(
         .items
         .iter()
         .zip(validated_items.iter())
-        .map(|(item, original)| original.unit_price_millieme * item.qty)
+        .map(|(item, original)| {
+            return_line_refund_millieme(
+                original,
+                item.qty,
+                invoice_subtotal_millieme,
+                invoice_total_millieme,
+            )
+        })
         .sum();
     let notes = normalize_optional_string(payload.notes);
 
@@ -706,7 +792,24 @@ async fn create_return_impl(
     let return_id = result.last_insert_rowid();
 
     for (item, original) in payload.items.iter().zip(validated_items.iter()) {
-        let line_total = original.unit_price_millieme * item.qty;
+        let line_total = return_line_refund_millieme(
+            original,
+            item.qty,
+            invoice_subtotal_millieme,
+            invoice_total_millieme,
+        );
+        // Effective per-unit refund price (line discount + prorated global
+        // discount/tax), for display consistency: full-line refund / qty.
+        let effective_unit_price = if original.qty > 0 {
+            return_line_refund_millieme(
+                original,
+                original.qty,
+                invoice_subtotal_millieme,
+                invoice_total_millieme,
+            ) / original.qty
+        } else {
+            original.unit_price_millieme
+        };
 
         sqlx::query(
             r#"
@@ -725,7 +828,7 @@ async fn create_return_impl(
         .bind(original.id)
         .bind(original.item_id)
         .bind(item.qty)
-        .bind(original.unit_price_millieme)
+        .bind(effective_unit_price)
         .bind(line_total)
         .execute(&mut *tx)
         .await?;
@@ -777,46 +880,72 @@ async fn create_return_impl(
 #[tauri::command]
 pub async fn search_items(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     query: Option<String>,
     category_id: Option<i64>,
 ) -> Result<Vec<Item>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     search_items_impl(&pool, query, category_id).await
 }
 
 #[tauri::command]
 pub async fn list_invoices(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     filters: InvoiceFilters,
 ) -> Result<Vec<InvoiceSummary>, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     list_invoices_impl(&pool, filters).await
 }
 
 #[tauri::command]
 pub async fn get_invoice_detail(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     invoice_id: i64,
 ) -> Result<InvoiceDetail, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     fetch_invoice_detail(&pool, invoice_id).await
 }
 
 #[tauri::command]
-pub async fn get_invoice_stats(pool: State<'_, DbPool>) -> Result<InvoiceStats, AppError> {
+pub async fn get_invoice_stats(
+    pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
+) -> Result<InvoiceStats, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     get_invoice_stats_impl(&pool).await
 }
 
 #[tauri::command]
 pub async fn create_sale_invoice(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     payload: CreateSaleInvoicePayload,
 ) -> Result<Invoice, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     create_sale_invoice_impl(&pool, payload).await
 }
 
 #[tauri::command]
 pub async fn create_return(
     pool: State<'_, DbPool>,
+    sessions: State<'_, SessionStore>,
+    token: Option<String>,
     payload: CreateReturnPayload,
 ) -> Result<Return, AppError> {
+    guard::require_role(&sessions, &pool, token, guard::ANY_ROLE).await?;
+
     create_return_impl(&pool, payload).await
 }
 
@@ -1090,7 +1219,7 @@ mod tests {
         );
         request.customer_id = Some(customer_id);
         request.payment_method = "deferred".to_owned();
-        request.paid_millieme = 20000;
+        request.paid_millieme = 0;
 
         let invoice = create_sale_invoice_impl(&pool, request).await?;
 
@@ -1103,6 +1232,108 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
         assert_eq!(balance, 23000);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_sale_invoice_deferred_partial_payment_records_paid_and_remaining(
+    ) -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_id = insert_item(&pool, "445", 5, 10000).await?;
+        let customer_id = insert_customer(&pool, 3000).await?;
+
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 2,
+                unit_price_millieme: 10000,
+                discount_millieme: 0,
+            }],
+        );
+        request.customer_id = Some(customer_id);
+        request.payment_method = "deferred".to_owned();
+        request.paid_millieme = 12000; // total is 20000
+
+        let invoice = create_sale_invoice_impl(&pool, request).await?;
+
+        assert_eq!(invoice.status, "partial");
+        assert_eq!(invoice.paid_millieme, 12000);
+
+        let (balance,): (i64,) =
+            sqlx::query_as("SELECT balance_millieme FROM customers WHERE id = ?")
+                .bind(customer_id)
+                .fetch_one(&pool)
+                .await?;
+        // 3000 opening + (20000 - 12000) remaining owed
+        assert_eq!(balance, 11000);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_sale_invoice_cash_overpayment_credits_customer_balance(
+    ) -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_id = insert_item(&pool, "446", 5, 10000).await?;
+        let customer_id = insert_customer(&pool, 0).await?;
+
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 2,
+                unit_price_millieme: 10000,
+                discount_millieme: 0,
+            }],
+        );
+        request.customer_id = Some(customer_id);
+        request.payment_method = "cash".to_owned();
+        request.paid_millieme = 25000; // total is 20000 -> 5000 excess
+
+        let invoice = create_sale_invoice_impl(&pool, request).await?;
+
+        assert_eq!(invoice.status, "paid");
+        // The invoice records the total as paid, not the inflated tendered amount.
+        assert_eq!(invoice.paid_millieme, 20000);
+
+        let (balance,): (i64,) =
+            sqlx::query_as("SELECT balance_millieme FROM customers WHERE id = ?")
+                .bind(customer_id)
+                .fetch_one(&pool)
+                .await?;
+        // Excess becomes store credit (negative balance = we owe the customer).
+        assert_eq!(balance, -5000);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_sale_invoice_cash_overpayment_without_customer_is_change(
+    ) -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_id = insert_item(&pool, "447", 5, 10000).await?;
+
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 2,
+                unit_price_millieme: 10000,
+                discount_millieme: 0,
+            }],
+        );
+        request.payment_method = "cash".to_owned();
+        request.paid_millieme = 25000; // total is 20000
+
+        let invoice = create_sale_invoice_impl(&pool, request).await?;
+
+        assert_eq!(invoice.status, "paid");
+        assert_eq!(invoice.paid_millieme, 20000);
 
         Ok(())
     }
@@ -1217,6 +1448,94 @@ mod tests {
         .fetch_one(&pool)
         .await?;
         assert_eq!(movement, (2, "return".to_owned(), "return".to_owned()));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_return_refunds_discounted_price_prorated() -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_id = insert_item(&pool, "668", 10, 10000).await?;
+
+        // 4 units @ 10000 with a 4000 line discount -> line total 36000 (9000/unit).
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 4,
+                unit_price_millieme: 10000,
+                discount_millieme: 4000,
+            }],
+        );
+        request.paid_millieme = 36000;
+        let invoice = create_sale_invoice_impl(&pool, request).await?;
+
+        let return_result = create_return_impl(
+            &pool,
+            CreateReturnPayload {
+                original_invoice_id: invoice.id,
+                session_id,
+                items: vec![ReturnItemPayload {
+                    invoice_item_id: invoice.items[0].id,
+                    item_id,
+                    qty: 2,
+                }],
+                refund_method: "cash".to_owned(),
+                notes: None,
+            },
+        )
+        .await?;
+
+        // Discounted, prorated: 36000 * 2 / 4 = 18000 (NOT the pre-discount 20000).
+        assert_eq!(return_result.total_millieme, 18000);
+        assert_eq!(return_result.items[0].total_millieme, 18000);
+        assert_eq!(return_result.items[0].unit_price_millieme, 9000);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn create_return_refunds_after_invoice_level_discount() -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_id = insert_item(&pool, "669", 10, 10000).await?;
+
+        // 1 unit @ 18000, no line discount, but a 3000 invoice-level discount:
+        // subtotal 18000 - 3000 = total 15000.
+        let mut request = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id,
+                qty: 1,
+                unit_price_millieme: 18000,
+                discount_millieme: 0,
+            }],
+        );
+        request.global_discount_millieme = 3000;
+        request.paid_millieme = 15000;
+        let invoice = create_sale_invoice_impl(&pool, request).await?;
+        assert_eq!(invoice.total_millieme, 15000);
+
+        let return_result = create_return_impl(
+            &pool,
+            CreateReturnPayload {
+                original_invoice_id: invoice.id,
+                session_id,
+                items: vec![ReturnItemPayload {
+                    invoice_item_id: invoice.items[0].id,
+                    item_id,
+                    qty: 1,
+                }],
+                refund_method: "cash".to_owned(),
+                notes: None,
+            },
+        )
+        .await?;
+
+        // Refund must reflect what was paid after the global discount: 15000, not 18000.
+        assert_eq!(return_result.total_millieme, 15000);
+        assert_eq!(return_result.items[0].total_millieme, 15000);
 
         Ok(())
     }
@@ -1339,6 +1658,73 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
         assert_eq!(balance, 50000);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn list_invoices_filters_by_invoice_number_or_invoice_item() -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_1 = insert_item(&pool, "111", 10, 10000).await?;
+        let item_2 = insert_item(&pool, "222", 10, 15000).await?;
+
+        let mut first = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id: item_1,
+                qty: 1,
+                unit_price_millieme: 10000,
+                discount_millieme: 0,
+            }],
+        );
+        first.paid_millieme = 10000;
+        let first_invoice = create_sale_invoice_impl(&pool, first).await?;
+
+        let mut second = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id: item_2,
+                qty: 1,
+                unit_price_millieme: 15000,
+                discount_millieme: 0,
+            }],
+        );
+        second.paid_millieme = 15000;
+        let second_invoice = create_sale_invoice_impl(&pool, second).await?;
+
+        let filters = |invoice_search: &str| InvoiceFilters {
+            date_from: None,
+            date_to: None,
+            customer_id: None,
+            customer_search: None,
+            invoice_search: Some(invoice_search.to_owned()),
+            status: None,
+            payment_method: None,
+            limit: None,
+            offset: None,
+        };
+
+        // Full invoice number and its bare numeric part.
+        let by_number = list_invoices_impl(&pool, filters(&first_invoice.invoice_number)).await?;
+        assert_eq!(by_number.len(), 1);
+        assert_eq!(by_number[0].id, first_invoice.id);
+
+        let by_partial_number = list_invoices_impl(&pool, filters("000002")).await?;
+        assert_eq!(by_partial_number.len(), 1);
+        assert_eq!(by_partial_number[0].id, second_invoice.id);
+
+        // Product name (denormalized on invoice_items) and exact barcode.
+        let by_item_name = list_invoices_impl(&pool, filters("صنف 222")).await?;
+        assert_eq!(by_item_name.len(), 1);
+        assert_eq!(by_item_name[0].id, second_invoice.id);
+
+        let by_barcode = list_invoices_impl(&pool, filters("111")).await?;
+        assert_eq!(by_barcode.len(), 1);
+        assert_eq!(by_barcode[0].id, first_invoice.id);
+
+        let no_match = list_invoices_impl(&pool, filters("غير موجود")).await?;
+        assert!(no_match.is_empty());
 
         Ok(())
     }

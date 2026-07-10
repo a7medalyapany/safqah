@@ -5,6 +5,13 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { BalanceKind, BalanceRow } from "@/modules/reports/types";
 import { invoke } from "@/shared/utils/invoke";
 import { formatEGP, toMillieme } from "@/shared/utils/money";
@@ -90,16 +97,16 @@ export function BalancePaymentDialog({
             />
           </FilterField>
           <FilterField label="طريقة الدفع">
-            <select
-              dir="rtl"
-              className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-              value={method}
-              onChange={(event) => setMethod(event.target.value)}
-            >
-              <option value="cash">كاش</option>
-              <option value="card">فيزا</option>
-              <option value="bank">تحويل بنكي</option>
-            </select>
+            <Select value={method} onValueChange={setMethod}>
+              <SelectTrigger dir="rtl" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent dir="rtl">
+                <SelectItem value="cash">كاش</SelectItem>
+                <SelectItem value="card">فيزا</SelectItem>
+                <SelectItem value="bank">تحويل بنكي</SelectItem>
+              </SelectContent>
+            </Select>
           </FilterField>
           <div className="flex justify-end gap-2">
             <Button

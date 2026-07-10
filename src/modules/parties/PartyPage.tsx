@@ -1,6 +1,7 @@
-import { useDeferredValue, useState, type ReactNode } from "react";
+import { useDeferredValue, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { invoke } from "@/shared/utils/invoke";
+import { TableCell, TableHeadCell as TableHead } from "@/shared/components/DataTable";
 import {
   BadgePlus,
   BookOpen,
@@ -18,9 +19,8 @@ import { CustomerLedgerSheet } from "@/modules/parties/CustomerLedgerSheet";
 import { DeletePartyDialog } from "@/modules/parties/DeletePartyDialog";
 import { PartyFormDialog } from "@/modules/parties/PartyFormDialog";
 import type { Party, PartyKind } from "@/modules/parties/types";
-import { getBalanceTone, getPartyMeta } from "@/modules/parties/utils";
-import { cn } from "@/lib/utils";
-import { formatEGP } from "@/shared/utils/money";
+import { getPartyMeta } from "@/modules/parties/utils";
+import { BalanceBadge } from "@/shared/components/BalanceBadge";
 
 export function PartyPage({ kind }: { kind: PartyKind }) {
   const [search, setSearch] = useState("");
@@ -117,14 +117,10 @@ export function PartyPage({ kind }: { kind: PartyKind }) {
                           </TableCell>
                           <TableCell>{party.phone || "—"}</TableCell>
                           <TableCell>
-                            <span
-                              className={cn(
-                                "font-medium",
-                                getBalanceTone(party.balance_millieme),
-                              )}
-                            >
-                              {formatEGP(party.balance_millieme)}
-                            </span>
+                            <BalanceBadge
+                              balanceMillieme={party.balance_millieme}
+                              kind={kind}
+                            />
                           </TableCell>
                           <TableCell>
                             <div className="flex flex-row-reverse justify-start gap-2">
@@ -219,20 +215,4 @@ function LoadingRows() {
       ))}
     </tr>
   ));
-}
-
-function TableHead({ children }: { children: ReactNode }) {
-  return <th className="px-4 py-3 text-right font-medium">{children}</th>;
-}
-
-function TableCell({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <td className={`px-4 py-3 align-middle ${className ?? ""}`}>{children}</td>
-  );
 }

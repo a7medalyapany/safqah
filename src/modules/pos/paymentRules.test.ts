@@ -20,16 +20,51 @@ describe("paymentRules", () => {
         paymentMethod: "cash",
         paidCashMillieme: 3000,
         totalMillieme: 5000,
+        paidCashManuallySet: false,
       }),
     ).toBe(true);
   });
 
-  it("does not sync when cash paid already covers total", () => {
+  it("syncs down when auto-filled cash exceeds total after removing items", () => {
+    expect(
+      shouldSyncCashPaidToTotal({
+        paymentMethod: "cash",
+        paidCashMillieme: 7000,
+        totalMillieme: 5000,
+        paidCashManuallySet: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps a manual overpay when total drops", () => {
+    expect(
+      shouldSyncCashPaidToTotal({
+        paymentMethod: "cash",
+        paidCashMillieme: 7000,
+        totalMillieme: 5000,
+        paidCashManuallySet: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("syncs a manual amount up when total rises above it", () => {
+    expect(
+      shouldSyncCashPaidToTotal({
+        paymentMethod: "cash",
+        paidCashMillieme: 5000,
+        totalMillieme: 7000,
+        paidCashManuallySet: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not sync when cash paid already matches total", () => {
     expect(
       shouldSyncCashPaidToTotal({
         paymentMethod: "cash",
         paidCashMillieme: 5000,
         totalMillieme: 5000,
+        paidCashManuallySet: false,
       }),
     ).toBe(false);
   });
@@ -40,6 +75,7 @@ describe("paymentRules", () => {
         paymentMethod: "card",
         paidCashMillieme: 0,
         totalMillieme: 5000,
+        paidCashManuallySet: false,
       }),
     ).toBe(false);
   });

@@ -2,11 +2,17 @@ import { X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
 import { TableCell, TableHead } from "@/modules/pos/components/PosControls";
 import { moneyToInput } from "@/modules/pos/utils";
 import { formatEGP, toMillieme } from "@/shared/utils/money";
 import type { CartItem } from "@/store/cartSlice";
 import { toast } from "sonner";
+
+// Compact, centered numeric input used across the cart rows. Native spin
+// buttons are hidden so the cells stay clean and consistent.
+const NUMBER_INPUT_CLASS =
+  "h-9 w-16 text-center tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 
 export function CartTable({
   items,
@@ -51,34 +57,44 @@ export function CartTable({
     <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border">
       <div className="h-full overflow-auto">
         {items.length === 0 ? (
-          <div className="flex h-full min-h-64 items-center justify-center px-6 text-center text-muted-foreground">
+          <div className="flex h-full items-center justify-center px-6 text-center text-muted-foreground">
             لا توجد أصناف — ابدأ بإضافة أصناف
           </div>
         ) : (
-          <table className="min-w-full text-right">
-            <thead className="sticky top-0 bg-muted/60 text-sm text-muted-foreground">
-              <tr>
-                <TableHead className="whitespace-nowrap">الصنف</TableHead>
-                <TableHead>الكمية</TableHead>
-                <TableHead>السعر</TableHead>
-                <TableHead>الخصم %</TableHead>
-                <TableHead>الإجمالي</TableHead>
-                <TableHead>×</TableHead>
+          <table className="w-full border-separate border-spacing-0 text-right text-sm">
+            <thead className="sticky top-0 z-10">
+              <tr className="bg-muted/80 backdrop-blur [&>th]:border-b [&>th]:border-border">
+                <TableHead className="w-auto">الصنف</TableHead>
+                <TableHead className="w-[4.5rem] text-center">الكمية</TableHead>
+                <TableHead className="w-24 text-center">السعر</TableHead>
+                <TableHead className="w-[4.5rem] text-center">الخصم %</TableHead>
+                <TableHead className="w-28 text-center">الإجمالي</TableHead>
+                <TableHead className="w-10 text-center">
+                  <span className="sr-only">حذف</span>
+                </TableHead>
               </tr>
             </thead>
             <tbody>
               {items.map((item) => (
-                <tr key={item.itemId} className="border-t align-top">
-                  <TableCell className="whitespace-nowrap font-medium">
-                    {item.nameAr}
+                <tr
+                  key={item.itemId}
+                  className="group transition-colors hover:bg-muted/40 [&>td]:border-b [&>td]:border-border/60"
+                >
+                  <TableCell className="font-medium">
+                    <span
+                      className="block max-w-[10rem] truncate"
+                      title={item.nameAr}
+                    >
+                      {item.nameAr}
+                    </span>
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="text-center">
                     <Input
                       dir="rtl"
                       type="number"
                       min={1}
                       step="1"
-                      className="w-16 text-center"
+                      className={NUMBER_INPUT_CLASS}
                       value={String(item.qty)}
                       onChange={(event) =>
                         onUpdateQty(
@@ -88,14 +104,14 @@ export function CartTable({
                       }
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="text-center">
                     <Input
                       key={`${item.itemId}-${item.unitPriceMillieme}`}
                       dir="rtl"
                       type="number"
                       min={0}
                       step="0.001"
-                      className="w-24 text-center"
+                      className={cn(NUMBER_INPUT_CLASS, "w-20")}
                       defaultValue={moneyToInput(item.unitPriceMillieme)}
                       onBlur={(event) => {
                         commitLineUnitPrice(
@@ -118,7 +134,7 @@ export function CartTable({
                       }}
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="text-center">
                     <Input
                       key={`${item.itemId}-${item.discountPercent}`}
                       dir="rtl"
@@ -126,7 +142,7 @@ export function CartTable({
                       min={0}
                       max={100}
                       step="1"
-                      className="w-20 text-center"
+                      className={NUMBER_INPUT_CLASS}
                       defaultValue={String(item.discountPercent)}
                       onBlur={(event) => {
                         try {
@@ -169,14 +185,14 @@ export function CartTable({
                       }}
                     />
                   </TableCell>
-                  <TableCell className="font-semibold">
+                  <TableCell className="text-center font-semibold tabular-nums whitespace-nowrap">
                     {formatEGP(item.totalMillieme)}
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="text-center">
                     <Button
                       variant="ghost"
                       size="icon-sm"
-                      className="text-destructive hover:text-destructive"
+                      className="text-muted-foreground opacity-70 transition hover:bg-destructive/10 hover:text-destructive group-hover:opacity-100"
                       onClick={() => onRemoveItem(item.itemId)}
                       aria-label="حذف الصنف"
                     >
