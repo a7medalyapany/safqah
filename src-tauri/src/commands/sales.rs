@@ -193,6 +193,19 @@ async fn list_invoices_impl(
         query.push_bind(format!("%{customer_search}%"));
     }
 
+    if let Some(invoice_search) = normalize_optional_string(filters.invoice_search) {
+        let like_pattern = format!("%{invoice_search}%");
+        query.push(" AND (invoices.invoice_number LIKE ");
+        query.push_bind(like_pattern.clone());
+        query.push(
+            " OR EXISTS (SELECT 1 FROM invoice_items WHERE invoice_items.invoice_id = invoices.id AND (invoice_items.item_name_ar LIKE ",
+        );
+        query.push_bind(like_pattern);
+        query.push(" OR invoice_items.barcode = ");
+        query.push_bind(invoice_search);
+        query.push(")))");
+    }
+
     if let Some(status) = normalize_optional_string(filters.status) {
         query.push(" AND invoices.status = ");
         query.push_bind(status);
@@ -1618,6 +1631,73 @@ mod tests {
                 .fetch_one(&pool)
                 .await?;
         assert_eq!(balance, 50000);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn list_invoices_filters_by_invoice_number_or_invoice_item() -> Result<(), AppError> {
+        let pool = test_pool().await?;
+        let session_id = insert_session(&pool, "open").await?;
+        let item_1 = insert_item(&pool, "111", 10, 10000).await?;
+        let item_2 = insert_item(&pool, "222", 10, 15000).await?;
+
+        let mut first = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id: item_1,
+                qty: 1,
+                unit_price_millieme: 10000,
+                discount_millieme: 0,
+            }],
+        );
+        first.paid_millieme = 10000;
+        let first_invoice = create_sale_invoice_impl(&pool, first).await?;
+
+        let mut second = payload(
+            session_id,
+            vec![InvoiceItemPayload {
+                item_id: item_2,
+                qty: 1,
+                unit_price_millieme: 15000,
+                discount_millieme: 0,
+            }],
+        );
+        second.paid_millieme = 15000;
+        let second_invoice = create_sale_invoice_impl(&pool, second).await?;
+
+        let filters = |invoice_search: &str| InvoiceFilters {
+            date_from: None,
+            date_to: None,
+            customer_id: None,
+            customer_search: None,
+            invoice_search: Some(invoice_search.to_owned()),
+            status: None,
+            payment_method: None,
+            limit: None,
+            offset: None,
+        };
+
+        // Full invoice number and its bare numeric part.
+        let by_number = list_invoices_impl(&pool, filters(&first_invoice.invoice_number)).await?;
+        assert_eq!(by_number.len(), 1);
+        assert_eq!(by_number[0].id, first_invoice.id);
+
+        let by_partial_number = list_invoices_impl(&pool, filters("000002")).await?;
+        assert_eq!(by_partial_number.len(), 1);
+        assert_eq!(by_partial_number[0].id, second_invoice.id);
+
+        // Product name (denormalized on invoice_items) and exact barcode.
+        let by_item_name = list_invoices_impl(&pool, filters("صنف 222")).await?;
+        assert_eq!(by_item_name.len(), 1);
+        assert_eq!(by_item_name[0].id, second_invoice.id);
+
+        let by_barcode = list_invoices_impl(&pool, filters("111")).await?;
+        assert_eq!(by_barcode.len(), 1);
+        assert_eq!(by_barcode[0].id, first_invoice.id);
+
+        let no_match = list_invoices_impl(&pool, filters("غير موجود")).await?;
+        assert!(no_match.is_empty());
 
         Ok(())
     }

@@ -16,6 +16,7 @@ export default function SalesPage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [customerSearch, setCustomerSearch] = useState("");
+  const [invoiceSearch, setInvoiceSearch] = useState("");
   const [status, setStatus] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
@@ -24,16 +25,25 @@ export default function SalesPage() {
   );
 
   const deferredCustomerSearch = useDeferredValue(customerSearch);
+  const deferredInvoiceSearch = useDeferredValue(invoiceSearch);
 
   useEffect(() => {
     setVisibleLimit(PAGE_SIZE);
-  }, [dateFrom, dateTo, deferredCustomerSearch, status, paymentMethod]);
+  }, [
+    dateFrom,
+    dateTo,
+    deferredCustomerSearch,
+    deferredInvoiceSearch,
+    status,
+    paymentMethod,
+  ]);
 
   const statsQuery = useInvoiceStats();
   const invoicesQuery = useInvoices({
     dateFrom,
     dateTo,
     customerSearch: deferredCustomerSearch,
+    invoiceSearch: deferredInvoiceSearch,
     status,
     paymentMethod,
     visibleLimit,
@@ -68,11 +78,13 @@ export default function SalesPage() {
           dateFrom={dateFrom}
           dateTo={dateTo}
           customerSearch={customerSearch}
+          invoiceSearch={invoiceSearch}
           status={status}
           paymentMethod={paymentMethod}
           onDateFromChange={setDateFrom}
           onDateToChange={setDateTo}
           onCustomerSearchChange={setCustomerSearch}
+          onInvoiceSearchChange={setInvoiceSearch}
           onStatusChange={setStatus}
           onPaymentMethodChange={setPaymentMethod}
         />

@@ -6,6 +6,7 @@ export type InvoiceFilters = {
   dateFrom: string | null;
   dateTo: string | null;
   customerSearch: string | null;
+  invoiceSearch: string | null;
   status: string | null;
   paymentMethod: string | null;
   limit: number;
