@@ -102,6 +102,30 @@ pub struct SupplierBalanceRow {
     pub oldest_invoice_date: Option<String>,
 }
 
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+pub struct CustomerProfitRow {
+    pub customer_id: i64,
+    pub name: String,
+    pub phone: Option<String>,
+    pub invoice_count: i64,
+    pub total_revenue_millieme: i64,
+    pub total_cost_millieme: i64,
+    pub gross_profit_millieme: i64,
+}
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+pub struct StockValuationRow {
+    pub item_id: i64,
+    pub name_ar: String,
+    pub barcode: Option<String>,
+    pub current_stock: i64,
+    pub buy_price_millieme: i64,
+    pub sell_price_millieme: i64,
+    pub cost_value_millieme: i64,
+    pub retail_value_millieme: i64,
+    pub potential_profit_millieme: i64,
+}
+
 fn log_slow_query(name: &str, start: Instant) {
     let elapsed = start.elapsed();
     if elapsed.as_millis() > 200 {
@@ -464,6 +488,128 @@ async fn report_supplier_balances_impl(
     .map_err(Into::into)
 }
 
+async fn report_customer_profits_impl(
+    pool: &DbPool,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    search: Option<String>,
+) -> Result<Vec<CustomerProfitRow>, AppError> {
+    let date_from = normalize_optional_string(date_from);
+    let date_to = normalize_optional_string(date_to);
+    let search = normalize_optional_string(search);
+
+    sqlx::query_as::<_, CustomerProfitRow>(
+        r#"
+        SELECT
+          c.id AS customer_id,
+          c.name,
+          c.phone,
+          COUNT(DISTINCT inv.id) AS invoice_count,
+          COALESCE(SUM(ii.total_millieme), 0) AS total_revenue_millieme,
+          COALESCE(SUM(ii.qty * i.buy_price_millieme), 0) AS total_cost_millieme,
+          COALESCE(SUM(ii.total_millieme), 0) - COALESCE(SUM(ii.qty * i.buy_price_millieme), 0) AS gross_profit_millieme
+        FROM customers c
+        JOIN invoices inv ON inv.customer_id = c.id AND inv.status != 'cancelled'
+        JOIN invoice_items ii ON ii.invoice_id = inv.id
+        JOIN items i ON i.id = ii.item_id
+        WHERE (? IS NULL OR DATE(inv.created_at) >= ?)
+          AND (? IS NULL OR DATE(inv.created_at) <= ?)
+          AND (? IS NULL OR c.name LIKE '%' || ? || '%' OR c.phone LIKE '%' || ? || '%')
+        GROUP BY c.id, c.name, c.phone
+        ORDER BY gross_profit_millieme DESC
+        "#,
+    )
+    .bind(&date_from)
+    .bind(&date_from)
+    .bind(&date_to)
+    .bind(&date_to)
+    .bind(&search)
+    .bind(&search)
+    .bind(&search)
+    .fetch_all(pool)
+    .await
+    .map_err(Into::into)
+}
+
+async fn report_item_profits_impl(
+    pool: &DbPool,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    search: Option<String>,
+    limit: Option<i64>,
+) -> Result<Vec<TopItemRow>, AppError> {
+    let date_from = normalize_optional_string(date_from);
+    let date_to = normalize_optional_string(date_to);
+    let search = normalize_optional_string(search);
+    let limit = limit.unwrap_or(50).max(1);
+
+    sqlx::query_as::<_, TopItemRow>(
+        r#"
+        SELECT
+          ii.item_id,
+          i.name_ar,
+          COALESCE(SUM(ii.qty), 0) AS total_qty_sold,
+          COALESCE(SUM(ii.total_millieme), 0) AS total_revenue_millieme,
+          COALESCE(SUM(ii.qty * i.buy_price_millieme), 0) AS total_cost_millieme,
+          COALESCE(SUM(ii.total_millieme), 0) - COALESCE(SUM(ii.qty * i.buy_price_millieme), 0) AS gross_profit_millieme
+        FROM invoice_items ii
+        JOIN items i ON i.id = ii.item_id
+        JOIN invoices inv ON inv.id = ii.invoice_id
+        WHERE inv.status != 'cancelled'
+          AND (? IS NULL OR DATE(inv.created_at) >= ?)
+          AND (? IS NULL OR DATE(inv.created_at) <= ?)
+          AND (? IS NULL OR i.name_ar LIKE '%' || ? || '%' OR i.barcode = ?)
+        GROUP BY ii.item_id, i.name_ar
+        ORDER BY gross_profit_millieme DESC
+        LIMIT ?
+        "#,
+    )
+    .bind(&date_from)
+    .bind(&date_from)
+    .bind(&date_to)
+    .bind(&date_to)
+    .bind(&search)
+    .bind(&search)
+    .bind(&search)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .map_err(Into::into)
+}
+
+async fn report_stock_valuation_impl(
+    pool: &DbPool,
+    search: Option<String>,
+) -> Result<Vec<StockValuationRow>, AppError> {
+    let search = normalize_optional_string(search);
+
+    sqlx::query_as::<_, StockValuationRow>(
+        r#"
+        SELECT
+          i.id AS item_id,
+          i.name_ar,
+          i.barcode,
+          i.current_stock,
+          i.buy_price_millieme,
+          i.sell_price_millieme,
+          i.current_stock * i.buy_price_millieme AS cost_value_millieme,
+          i.current_stock * i.sell_price_millieme AS retail_value_millieme,
+          i.current_stock * (i.sell_price_millieme - i.buy_price_millieme) AS potential_profit_millieme
+        FROM items i
+        WHERE i.is_active = 1
+          AND i.current_stock > 0
+          AND (? IS NULL OR i.name_ar LIKE '%' || ? || '%' OR i.barcode = ?)
+        ORDER BY cost_value_millieme DESC
+        "#,
+    )
+    .bind(&search)
+    .bind(&search)
+    .bind(&search)
+    .fetch_all(pool)
+    .await
+    .map_err(Into::into)
+}
+
 #[tauri::command]
 pub async fn report_daily_sales(
     pool: State<'_, DbPool>,
@@ -553,5 +699,43 @@ pub async fn report_supplier_balances(
     let start = Instant::now();
     let result = report_supplier_balances_impl(&pool).await;
     log_slow_query("report_supplier_balances", start);
+    result
+}
+
+#[tauri::command]
+pub async fn report_customer_profits(
+    pool: State<'_, DbPool>,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    search: Option<String>,
+) -> Result<Vec<CustomerProfitRow>, AppError> {
+    let start = Instant::now();
+    let result = report_customer_profits_impl(&pool, date_from, date_to, search).await;
+    log_slow_query("report_customer_profits", start);
+    result
+}
+
+#[tauri::command]
+pub async fn report_item_profits(
+    pool: State<'_, DbPool>,
+    date_from: Option<String>,
+    date_to: Option<String>,
+    search: Option<String>,
+    limit: Option<i64>,
+) -> Result<Vec<TopItemRow>, AppError> {
+    let start = Instant::now();
+    let result = report_item_profits_impl(&pool, date_from, date_to, search, limit).await;
+    log_slow_query("report_item_profits", start);
+    result
+}
+
+#[tauri::command]
+pub async fn report_stock_valuation(
+    pool: State<'_, DbPool>,
+    search: Option<String>,
+) -> Result<Vec<StockValuationRow>, AppError> {
+    let start = Instant::now();
+    let result = report_stock_valuation_impl(&pool, search).await;
+    log_slow_query("report_stock_valuation", start);
     result
 }

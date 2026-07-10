@@ -31,9 +31,9 @@ use commands::{
         open_whatsapp_with_invoice,
     },
     reports::{
-        report_customer_balances, report_daily_sales, report_low_stock, report_payment_methods,
-        report_profit_analysis, report_sales_by_period, report_supplier_balances,
-        report_top_items,
+        report_customer_balances, report_customer_profits, report_daily_sales, report_item_profits,
+        report_low_stock, report_payment_methods, report_profit_analysis, report_sales_by_period,
+        report_stock_valuation, report_supplier_balances, report_top_items,
     },
     sales::{
         create_return, create_sale_invoice, get_invoice_detail, get_invoice_stats, list_invoices,
@@ -201,7 +201,10 @@ pub fn run() {
             report_profit_analysis,
             report_payment_methods,
             report_customer_balances,
-            report_supplier_balances
+            report_supplier_balances,
+            report_customer_profits,
+            report_item_profits,
+            report_stock_valuation
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

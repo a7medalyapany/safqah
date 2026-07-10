@@ -1,5 +1,5 @@
 import type { GroupBy, ReportView } from "@/modules/reports/types";
-import { BalancesReportView, DailySalesReportView, ExpenseSummaryView, LowStockReportView, PaymentMethodsReportView, PeriodSalesReportView, ProfitReportView, TopItemsReportView } from "./ReportViews";
+import { BalancesReportView, CustomerProfitsReportView, DailySalesReportView, ExpenseSummaryView, ItemProfitsReportView, LowStockReportView, PaymentMethodsReportView, PeriodSalesReportView, ProfitReportView, StockValuationReportView, TopItemsReportView } from "./ReportViews";
 
 export function ReportViewScreen({
   view,
@@ -11,6 +11,11 @@ export function ReportViewScreen({
   if (view === "daily") return <DailySalesReportView onBack={onBack} />;
   if (view === "top-items") return <TopItemsReportView onBack={onBack} />;
   if (view === "profit") return <ProfitReportView onBack={onBack} />;
+  if (view === "customer-profits")
+    return <CustomerProfitsReportView onBack={onBack} />;
+  if (view === "item-profits") return <ItemProfitsReportView onBack={onBack} />;
+  if (view === "stock-valuation")
+    return <StockValuationReportView onBack={onBack} />;
   if (view === "expenses") return <ExpenseSummaryView onBack={onBack} />;
   if (view === "payments") return <PaymentMethodsReportView onBack={onBack} />;
   if (view === "customers")
@@ -32,6 +37,9 @@ export function toReportView(value: string | null): ReportView | null {
     value === "period-month" ||
     value === "top-items" ||
     value === "profit" ||
+    value === "customer-profits" ||
+    value === "item-profits" ||
+    value === "stock-valuation" ||
     value === "expenses" ||
     value === "payments" ||
     value === "customers" ||
