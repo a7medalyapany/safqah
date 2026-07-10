@@ -7,27 +7,43 @@ export function InvoiceFilters({
   dateFrom,
   dateTo,
   customerSearch,
+  invoiceSearch,
   status,
   paymentMethod,
   onDateFromChange,
   onDateToChange,
   onCustomerSearchChange,
+  onInvoiceSearchChange,
   onStatusChange,
   onPaymentMethodChange,
 }: {
   dateFrom: string;
   dateTo: string;
   customerSearch: string;
+  invoiceSearch: string;
   status: string;
   paymentMethod: string;
   onDateFromChange: (value: string) => void;
   onDateToChange: (value: string) => void;
   onCustomerSearchChange: (value: string) => void;
+  onInvoiceSearchChange: (value: string) => void;
   onStatusChange: (value: string) => void;
   onPaymentMethodChange: (value: string) => void;
 }) {
   return (
-    <div className="grid gap-3 rounded-2xl border bg-card p-4 md:grid-cols-2 xl:grid-cols-5">
+    <div className="grid gap-3 rounded-2xl border bg-card p-4 md:grid-cols-2 xl:grid-cols-6">
+      <FilterField label="فاتورة / منتج">
+        <div className="relative">
+          <Search className="absolute inset-e-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            dir="rtl"
+            className="pe-9"
+            placeholder="رقم الفاتورة أو اسم/باركود منتج..."
+            value={invoiceSearch}
+            onChange={(event) => onInvoiceSearchChange(event.target.value)}
+          />
+        </div>
+      </FilterField>
       <FilterField label="من تاريخ">
         <Input
           type="date"

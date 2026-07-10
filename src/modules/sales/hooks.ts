@@ -28,6 +28,7 @@ export function useInvoices(params: {
   dateFrom: string;
   dateTo: string;
   customerSearch: string;
+  invoiceSearch: string;
   status: string;
   paymentMethod: string;
   visibleLimit: number;
@@ -37,6 +38,7 @@ export function useInvoices(params: {
       params.dateFrom,
       params.dateTo,
       params.customerSearch,
+      params.invoiceSearch,
       params.status,
       params.paymentMethod,
       params.visibleLimit,
@@ -47,6 +49,7 @@ export function useInvoices(params: {
           dateFrom: params.dateFrom,
           dateTo: params.dateTo,
           customerSearch: params.customerSearch,
+          invoiceSearch: params.invoiceSearch,
           status: params.status,
           paymentMethod: params.paymentMethod,
           limit: params.visibleLimit,

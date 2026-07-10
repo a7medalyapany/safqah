@@ -9,6 +9,7 @@ export function buildFilters(params: {
   dateFrom: string;
   dateTo: string;
   customerSearch: string;
+  invoiceSearch: string;
   status: string;
   paymentMethod: string;
   limit: number;
@@ -18,6 +19,7 @@ export function buildFilters(params: {
     dateFrom: params.dateFrom || null,
     dateTo: params.dateTo || null,
     customerSearch: params.customerSearch.trim() || null,
+    invoiceSearch: params.invoiceSearch.trim() || null,
     status: params.status || null,
     paymentMethod: params.paymentMethod || null,
     limit: params.limit,
