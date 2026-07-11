@@ -1,6 +1,6 @@
 [package]
 name = "safqah"
-version = "0.2.0"
+version = "0.2.1"
 description = "Offline-first Arabic point of sale system for small businesses."
 authors = ["Ahmed Ibrahim"]
 edition = "2021"

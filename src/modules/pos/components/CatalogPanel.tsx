@@ -38,7 +38,7 @@ export function CatalogPanel({
   onItemDoubleClick: (item: Item) => void;
 }) {
   return (
-    <Card className="flex min-h-[70vh] flex-1 flex-col lg:h-full lg:min-h-0 lg:basis-[60%]">
+    <Card className="flex min-h-[70vh] flex-1 flex-col lg:h-full lg:min-h-0 lg:basis-[45%]">
       <CardHeader className="border-b pb-4">
         <CardTitle className="text-right text-2xl">نقطة البيع</CardTitle>
       </CardHeader>
