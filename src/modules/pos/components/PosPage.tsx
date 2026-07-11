@@ -437,7 +437,7 @@ export default function PosPage() {
             onItemDoubleClick={handleItemCardDoubleClick}
           />
 
-          <Card className="flex min-h-[70vh] flex-col lg:h-full lg:min-h-0 lg:basis-[40%]">
+          <Card className="flex min-h-[70vh] flex-col lg:h-full lg:min-h-0 lg:basis-[55%]">
             <CardContent className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
               <CartTable
                 items={cartItems}

@@ -2,7 +2,6 @@ import { X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { cn } from "@/lib/utils";
 import { TableCell, TableHead } from "@/modules/pos/components/PosControls";
 import { moneyToInput } from "@/modules/pos/utils";
 import { formatEGP, toMillieme } from "@/shared/utils/money";
@@ -82,7 +81,7 @@ export function CartTable({
                 >
                   <TableCell className="font-medium">
                     <span
-                      className="block max-w-[10rem] truncate"
+                      className="block max-w-[8rem] truncate"
                       title={item.nameAr}
                     >
                       {item.nameAr}
@@ -111,7 +110,7 @@ export function CartTable({
                       type="number"
                       min={0}
                       step="0.001"
-                      className={cn(NUMBER_INPUT_CLASS, "w-20")}
+                      className={NUMBER_INPUT_CLASS}
                       defaultValue={moneyToInput(item.unitPriceMillieme)}
                       onBlur={(event) => {
                         commitLineUnitPrice(

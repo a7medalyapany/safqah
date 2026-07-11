@@ -1,7 +1,5 @@
 import { Input } from "@/components/ui/input";
-import { Separator } from "@/components/ui/separator";
 import { moneyToInput } from "@/modules/pos/utils";
-import { SummaryRow } from "@/shared/components/SummaryRow";
 import { formatEGP, toMillieme } from "@/shared/utils/money";
 
 export function TotalsPanel({
@@ -18,18 +16,27 @@ export function TotalsPanel({
   onSetGlobalDiscount: (discountMillieme: number) => void;
 }) {
   return (
-    <div className="space-y-3 rounded-2xl border p-4">
-      <SummaryRow label="المجموع الفرعي" value={formatEGP(subtotalMillieme)} />
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-muted-foreground">الخصم الإجمالي</span>
+    <div className="space-y-1.5 rounded-2xl border p-3">
+      <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">
+            المجموع الفرعي
+          </span>
+          <span className="text-sm font-medium">
+            {formatEGP(subtotalMillieme)}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">
+            الخصم الإجمالي
+          </span>
           <Input
             key={`global-discount-${globalDiscountMillieme}`}
             dir="rtl"
             type="number"
             min={0}
             step="0.01"
-            className="w-28 text-center"
+            className="h-8 w-24 text-center text-sm"
             defaultValue={moneyToInput(globalDiscountMillieme)}
             onBlur={(event) => {
               try {
@@ -42,14 +49,16 @@ export function TotalsPanel({
           />
         </div>
       </div>
-      <Separator />
-      <SummaryRow
-        label="الإجمالي"
-        value={formatEGP(totalMillieme)}
-        className="text-lg font-bold"
-      />
-      <div className="text-sm text-muted-foreground">
-        إجمالي الخصم: {formatEGP(totalDiscountMillieme)}
+      <div className="flex items-center justify-between gap-4 border-t pt-1.5">
+        <div className="flex items-baseline gap-2">
+          <span className="text-lg font-bold">الإجمالي</span>
+          <span className="text-lg font-bold">
+            {formatEGP(totalMillieme)}
+          </span>
+        </div>
+        <span className="text-xs text-muted-foreground">
+          إجمالي الخصم: {formatEGP(totalDiscountMillieme)}
+        </span>
       </div>
     </div>
   );
